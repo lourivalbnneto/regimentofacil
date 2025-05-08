@@ -1,0 +1,13 @@
+# Configuração do Bun e Node.js no Railway
+[phases.setup]
+# Usar a versão mais recente do Bun
+nixpkgsArchive = 'master'
+
+# Garantir que o Node.js seja instalado
+nixpkgs = ['nodejs']
+
+# Configuração do Bun (se necessário)
+[build]
+image = 'bun'
+
+# Outras configurações que você possa precisar
