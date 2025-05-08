@@ -6,4 +6,4 @@ image = 'python'
 command = "pip install -r requirements.txt"
 
 [phases.run]
-command = "flask run --host=0.0.0.0 --port=5000"
+command = "pip install flask && pip install -r requirements.txt && flask run --host=0.0.0.0 --port=5000"
