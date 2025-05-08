@@ -1,7 +1,7 @@
 {
   "name": "vetorizacao-api",
   "version": "1.0.0",
-  "main": "index.ts",  // Alterado para o novo arquivo
+  "main": "index.ts",
   "dependencies": {
     "openai": "^1.0.0",
     "supabase": "^2.0.0"
