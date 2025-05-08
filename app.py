@@ -20,7 +20,7 @@ def vetorizar_pdf():
         if not file_url or not condominio_id:
             return jsonify({"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}), 400
 
-        # Adicione a lógica de vetorização aqui
+        # Lógica de vetorização
 
         return jsonify({"message": "Vetorização completada com sucesso!"}), 200
     except Exception as e:
