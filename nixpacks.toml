@@ -1,7 +1,6 @@
 [phases.setup]
-nixpkgsArchive = 'master'
 nixpkgs = ['python3', 'pip']
 
 [build]
 image = 'python'
-command = "pip install -r requirements.txt"  # Instala as dependências do Python
+command = "pip install -r requirements.txt"  # Instalar dependências Python
