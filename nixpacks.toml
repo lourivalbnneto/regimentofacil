@@ -10,4 +10,6 @@ nixpkgs = ['nodejs']
 [build]
 image = 'bun'
 
-# Outras configurações que você possa precisar
+[phases.setup]
+# Verificar a instalação do Bun
+command = "bun --version"
