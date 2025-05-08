@@ -6,4 +6,4 @@ image = 'python'
 command = "pip install -r requirements.txt"  # Instalar as dependências listadas no requirements.txt
 
 [phases.run]
-command = "pip install flask && pip install -r requirements.txt && flask run --host=0.0.0.0 --port=5000"  # Instalar o Flask, instalar outras dependências e rodar o Flask
+command = "python -m flask run --host=0.0.0.0 --port=5000"  # Rodar o Flask diretamente com o Python
