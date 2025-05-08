@@ -1,9 +1,9 @@
 {
   "name": "vetorizacao-api",
   "version": "1.0.0",
-  "main": "index.tsx",
+  "main": "index.ts",  // Alterado para o novo arquivo
   "dependencies": {
-    "openai": "^1.0.0",  // Exemplo de dependência
+    "openai": "^1.0.0",
     "supabase": "^2.0.0"
   }
 }
