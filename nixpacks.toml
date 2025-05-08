@@ -2,5 +2,8 @@
 nixpkgs = ['python3', 'pip']
 
 [build]
-image = 'python'
-command = "pip install -r requirements.txt"  # Instalar dependências Python
+image = 'python'  # Use a imagem de Python
+command = "pip install -r requirements.txt"  # Instalar dependências
+
+[phases.run]
+command = "flask run --host=0.0.0.0 --port=5000"  # Rodar o servidor Flask
