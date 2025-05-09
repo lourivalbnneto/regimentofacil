@@ -75,8 +75,13 @@ def split_by_articles(text):
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
-    response = openai.embeddings.create(model=model, input=text)
-    return response.data[0].embedding
+    try:
+        response = openai.embeddings.create(model=model, input=text)
+        print(f"Embedding gerado: {response}")
+        return response.data[0].embedding
+    except Exception as e:
+        print(f"Erro ao gerar embedding: {e}")
+        return None
 
 # Gerar hash do chunk
 def generate_chunk_hash(chunk_text):
@@ -121,11 +126,10 @@ def vectorize_pdf(file_url, condominio_id):
             if not chunk:
                 continue
             chunk_hash = generate_chunk_hash(chunk)
-            try:
-                embedding = get_embedding(chunk)
-            except Exception as e:
-                print(f"❌ Erro ao gerar embedding: {e}")
-                embedding = None
+            embedding = get_embedding(chunk)
+            if not embedding:
+                print(f"❌ Falha ao gerar embedding para o chunk da página {page_number}.")
+                continue
 
             all_chunks.append({
                 "condominio_id": condominio_id,
@@ -149,12 +153,10 @@ async def vetorizar_pdf(item: Item):
         if not file_url or not condominio_id:
             return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
-        print(f"Arquivo URL: {file_url}")
-        print(f"ID do condomínio: {condominio_id}")
-
         # Processar o PDF e gerar os embeddings
         vectorized_data = vectorize_pdf(file_url, condominio_id)
 
+        # Imprimir os dados vetorizados para depuração
         print(f"Dados vetorizados: {vectorized_data}")
 
         # Salvar os embeddings no Supabase
