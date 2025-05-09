@@ -138,6 +138,10 @@ def vectorize_pdf(file_url, condominio_id):
             time.sleep(0.5)  # Evitar rate limit da OpenAI
     return all_chunks
 
+@app.get("/")
+def home():
+    return {"message": "FastAPI está funcionando!"}
+
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
