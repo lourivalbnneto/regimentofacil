@@ -11,10 +11,6 @@ import re
 from supabase import create_client, Client
 from io import BytesIO
 import requests
-import logging
-
-# Configuração do logger para capturar mais detalhes
-logging.basicConfig(level=logging.DEBUG)
 
 load_dotenv()  # Carregar variáveis de ambiente
 
@@ -59,7 +55,7 @@ def extract_text_from_pdf(file_url):
             if text:
                 all_text.append((page_number, text.strip()))
             else:
-                logging.warning(f"⚠️ Página {page_number} sem texto extraível.")
+                print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
 # Dividir texto por artigos (usando regex para detectar "Art.")
@@ -94,30 +90,30 @@ def check_chunk_exists(chunk_hash):
 def insert_embeddings_to_supabase(chunks_with_metadata):
     for i, item in enumerate(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
-            logging.warning(f"⚠️ Chunk {i+1} já existe. Pulando.")
+            print(f"⚠️ Chunk {i+1} já existe. Pulando.")
             continue
         response = supabase.table("pdf_embeddings_textos").insert(item).execute()
         if response.data:
-            logging.info(f"✅ Chunk {i+1} inserido com sucesso!")
+            print(f"✅ Chunk {i+1} inserido com sucesso!")
         else:
-            logging.error(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
+            print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
 # Função para processar o PDF e gerar os embeddings
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
 
-    logging.info("📄 Extraindo texto do PDF...")
+    print("📄 Extraindo texto do PDF...")
     pages = extract_text_from_pdf(file_url)
     if not pages:
-        logging.warning("⚠️ Nenhum texto extraído.")
+        print("⚠️ Nenhum texto extraído.")
         return []
 
     all_chunks = []
     for page_number, page_text in pages:
-        logging.info(f"✂️ Página {page_number}: dividindo por artigos...")
+        print(f"✂️ Página {page_number}: dividindo por artigos...")
         articles = split_by_articles(page_text)
-        logging.info(f"🔎 Artigos detectados: {len(articles)}")
+        print(f"🔎 Artigos detectados: {len(articles)}")
 
         for article in articles:
             chunk = limpar_texto(article.strip())  # Limpeza de texto
@@ -127,7 +123,7 @@ def vectorize_pdf(file_url, condominio_id):
             try:
                 embedding = get_embedding(chunk)
             except Exception as e:
-                logging.error(f"❌ Erro ao gerar embedding: {e}")
+                print(f"❌ Erro ao gerar embedding: {e}")
                 embedding = None
 
             all_chunks.append({
@@ -144,13 +140,11 @@ def vectorize_pdf(file_url, condominio_id):
 
 @app.get("/")
 def home():
-    logging.info("Home endpoint acessado!")
     return {"message": "FastAPI está funcionando!"}
 
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
-        logging.info("Endpoint /vetorizar acessado!")
         file_url = item.file_url
         condominio_id = item.condominio_id
 
@@ -167,10 +161,9 @@ async def vetorizar_pdf(item: Item):
         else:
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
-        logging.error(f"Erro ao processar vetorizar_pdf: {e}")
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
     import uvicorn
-    logging.info("Iniciando a aplicação FastAPI...")
     uvicorn.run(app, host="0.0.0.0", port=5000)
+
