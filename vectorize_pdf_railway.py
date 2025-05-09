@@ -140,11 +140,13 @@ def vectorize_pdf(file_url, condominio_id):
 
 @app.get("/")
 def home():
+    print("Home endpoint acessado!")
     return {"message": "FastAPI está funcionando!"}
 
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
+        print("Endpoint /vetorizar acessado!")
         file_url = item.file_url
         condominio_id = item.condominio_id
 
@@ -161,6 +163,7 @@ async def vetorizar_pdf(item: Item):
         else:
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
+        print(f"Erro ao processar vetorizar_pdf: {e}")
         return {"error": str(e)}, 500
 
 if __name__ == "__main__":
