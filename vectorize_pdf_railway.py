@@ -11,6 +11,7 @@ import re
 from supabase import create_client, Client
 from io import BytesIO
 import requests
+import uvicorn
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -75,13 +76,8 @@ def split_by_articles(text):
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
-    try:
-        response = openai.embeddings.create(model=model, input=text)
-        print(f"Embedding gerado: {response}")
-        return response.data[0].embedding
-    except Exception as e:
-        print(f"Erro ao gerar embedding: {e}")
-        return None
+    response = openai.embeddings.create(model=model, input=text)
+    return response.data[0].embedding
 
 # Gerar hash do chunk
 def generate_chunk_hash(chunk_text):
@@ -126,10 +122,11 @@ def vectorize_pdf(file_url, condominio_id):
             if not chunk:
                 continue
             chunk_hash = generate_chunk_hash(chunk)
-            embedding = get_embedding(chunk)
-            if not embedding:
-                print(f"❌ Falha ao gerar embedding para o chunk da página {page_number}.")
-                continue
+            try:
+                embedding = get_embedding(chunk)
+            except Exception as e:
+                print(f"❌ Erro ao gerar embedding: {e}")
+                embedding = None
 
             all_chunks.append({
                 "condominio_id": condominio_id,
@@ -143,7 +140,6 @@ def vectorize_pdf(file_url, condominio_id):
             time.sleep(0.5)  # Evitar rate limit da OpenAI
     return all_chunks
 
-# Endpoint FastAPI para vetorizar
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
@@ -156,25 +152,16 @@ async def vetorizar_pdf(item: Item):
         # Processar o PDF e gerar os embeddings
         vectorized_data = vectorize_pdf(file_url, condominio_id)
 
-        # Imprimir os dados vetorizados para depuração
-        print(f"Dados vetorizados: {vectorized_data}")
-
         # Salvar os embeddings no Supabase
         if vectorized_data:
             insert_embeddings_to_supabase(vectorized_data)
             return {"message": "Vetorização completada com sucesso!"}, 200
         else:
-            print("Nenhum dado vetorizado retornado.")
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
-        print(f"Erro: {str(e)}")
         return {"error": str(e)}, 500
 
-@app.get("/")
-def read_root():
-    return {"message": "FastAPI está funcionando!"}
-
-# Rodando o aplicativo com o Uvicorn
+# Iniciar o servidor Uvicorn
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5000)
