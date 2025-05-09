@@ -11,10 +11,8 @@ import re
 from supabase import create_client, Client
 from io import BytesIO
 import requests
-import uvicorn
 
-# Carregar variáveis de ambiente
-load_dotenv()
+load_dotenv()  # Carregar variáveis de ambiente
 
 # Criando a aplicação FastAPI
 app = FastAPI()
@@ -161,7 +159,7 @@ async def vetorizar_pdf(item: Item):
     except Exception as e:
         return {"error": str(e)}, 500
 
-# Iniciar o servidor Uvicorn
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+# Com isso, a função FastAPI estará pronta e o servidor FastAPI será executado localmente.
+# Utilize o seguinte comando para rodar o servidor:
+# uvicorn vectorize_pdf_railway:app --host=0.0.0.0 --port=5000 --reload
+
