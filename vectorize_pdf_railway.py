@@ -12,7 +12,8 @@ from supabase import create_client, Client
 from io import BytesIO
 import requests
 
-load_dotenv()  # Carregar variáveis de ambiente
+# Carregar variáveis de ambiente
+load_dotenv()
 
 # Criando a aplicação FastAPI
 app = FastAPI()
