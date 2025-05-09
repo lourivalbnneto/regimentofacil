@@ -139,6 +139,7 @@ def vectorize_pdf(file_url, condominio_id):
             time.sleep(0.5)  # Evitar rate limit da OpenAI
     return all_chunks
 
+# Endpoint FastAPI para vetorizar
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
@@ -148,14 +149,26 @@ async def vetorizar_pdf(item: Item):
         if not file_url or not condominio_id:
             return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
+        print(f"Arquivo URL: {file_url}")
+        print(f"ID do condomínio: {condominio_id}")
+
         # Processar o PDF e gerar os embeddings
         vectorized_data = vectorize_pdf(file_url, condominio_id)
+
+        print(f"Dados vetorizados: {vectorized_data}")
 
         # Salvar os embeddings no Supabase
         if vectorized_data:
             insert_embeddings_to_supabase(vectorized_data)
             return {"message": "Vetorização completada com sucesso!"}, 200
         else:
+            print("Nenhum dado vetorizado retornado.")
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
+        print(f"Erro: {str(e)}")
         return {"error": str(e)}, 500
+
+# Rodando o aplicativo com o Uvicorn
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000)
