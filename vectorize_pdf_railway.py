@@ -170,6 +170,10 @@ async def vetorizar_pdf(item: Item):
         print(f"Erro: {str(e)}")
         return {"error": str(e)}, 500
 
+@app.get("/")
+def read_root():
+    return {"message": "FastAPI está funcionando!"}
+
 # Rodando o aplicativo com o Uvicorn
 if __name__ == "__main__":
     import uvicorn
