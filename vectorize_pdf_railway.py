@@ -166,8 +166,3 @@ async def vetorizar_pdf(item: Item):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=5000)
-
-# Com isso, a função FastAPI estará pronta e o servidor FastAPI será executado localmente.
-# Utilize o seguinte comando para rodar o servidor:
-# uvicorn vectorize_pdf_railway:app --host=0.0.0.0 --port=5000 --reload
-
