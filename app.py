@@ -1,30 +1,37 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI
+from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
 
 load_dotenv()  # Carregar variáveis de ambiente
 
-app = Flask(__name__)
+# Criando a aplicação FastAPI
+app = FastAPI()
 
-@app.route('/')
+# Definindo o modelo de dados para a requisição
+class Item(BaseModel):
+    file_url: str
+    condominio_id: str
+
+@app.get("/")
 def home():
-    return "Flask está funcionando!"
+    return {"message": "FastAPI está funcionando!"}
 
-@app.route('/vetorizar', methods=['POST'])
-def vetorizar_pdf():
+@app.post("/vetorizar")
+async def vetorizar_pdf(item: Item):
     try:
-        data = request.get_json()
-        file_url = data.get('file_url')
-        condominio_id = data.get('condominio_id')
+        file_url = item.file_url
+        condominio_id = item.condominio_id
 
         if not file_url or not condominio_id:
-            return jsonify({"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}), 400
+            return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
-        # Adicione a lógica de vetorização aqui
+        # Aqui vai a lógica da vetorização
 
-        return jsonify({"message": "Vetorização completada com sucesso!"}), 200
+        return {"message": "Vetorização completada com sucesso!"}, 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return {"error": str(e)}, 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000)
