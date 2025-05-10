@@ -13,10 +13,10 @@ from io import BytesIO
 import requests
 import threading
 
-# Iniciar aplicação FastAPI
+# Criação da aplicação com root_path dinâmico (compatível com Railway e proxies futuros)
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
 
-# Modelo de entrada para a rota POST
+# Modelo de entrada
 class Item(BaseModel):
     file_url: str
     condominio_id: str
@@ -24,7 +24,7 @@ class Item(BaseModel):
 # Carregar variáveis de ambiente
 load_dotenv()
 
-# Configurações de API
+# Chaves de API
 openai.api_key = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -38,12 +38,12 @@ try:
 except LookupError:
     nltk.download("punkt")
 
-# Limpar quebras de linha e espaços múltiplos
+# Limpeza básica de texto
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
     return ' '.join(texto.split())
 
-# Extrair texto do PDF
+# Extração de texto do PDF
 def extract_text_from_pdf(file_url):
     all_text = []
     response = requests.get(file_url)
@@ -83,7 +83,7 @@ def get_embedding(text, model="text-embedding-3-small"):
 def generate_chunk_hash(chunk_text):
     return hashlib.sha256(chunk_text.encode()).hexdigest()
 
-# Verificar duplicidade
+# Verificar duplicidade no Supabase
 def check_chunk_exists(chunk_hash):
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     return bool(response.data)
@@ -100,7 +100,7 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
-# Processamento completo
+# Função principal de vetorização
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -145,7 +145,7 @@ def vectorize_pdf(file_url, condominio_id):
 def home():
     return {"message": "FastAPI está funcionando!"}
 
-# Rota POST para vetorização
+# Rota de vetorização
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
@@ -165,7 +165,7 @@ async def vetorizar_pdf(item: Item):
     except Exception as e:
         return {"error": str(e)}, 500
 
-# Thread para manter app vivo no Railway
+# Thread para manter o app vivo
 def keep_alive():
     while True:
         print("🟢 App está rodando...")
