@@ -11,7 +11,6 @@ import re
 from supabase import create_client, Client
 from io import BytesIO
 import requests
-import threading
 
 # Iniciar aplicação FastAPI
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
@@ -164,11 +163,3 @@ async def vetorizar_pdf(item: Item):
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
         return {"error": str(e)}, 500
-
-# Thread para manter app vivo no Railway
-def keep_alive():
-    while True:
-        print("🟢 App está rodando...")
-        time.sleep(10)
-
-threading.Thread(target=keep_alive, daemon=True).start()
