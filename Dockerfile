@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5000
 
 # Use ENTRYPOINT para evitar que o container finalize
-ENTRYPOINT ["uvicorn", "vectorize_pdf_railway:app", "--host=0.0.0.0", "--port=5000"]
+ENTRYPOINT ["sh", "-c", "uvicorn vectorize_pdf_railway:app --host=0.0.0.0 --port=$PORT"]
