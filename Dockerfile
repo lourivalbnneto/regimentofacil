@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 5000
 
-ENTRYPOINT ["uvicorn", "vectorize_pdf:app", "--host=0.0.0.0", "--port", "${PORT}"]
+CMD ["sh", "-c", "ls -la && pwd && python3 -c 'import vectorize_pdf; print(vectorize_pdf.app)' && uvicorn vectorize_pdf:app --host=0.0.0.0 --port=$PORT"]
