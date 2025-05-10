@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app/src
+WORKDIR /app
 
 COPY . .
 
@@ -13,4 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "ls -la && pwd && python3 -c 'import vectorize_pdf; print(vectorize_pdf.app)' && uvicorn vectorize_pdf:app --host=0.0.0.0 --port=$PORT"]
+ENTRYPOINT ["uvicorn", "vectorize_pdf:app", "--host=0.0.0.0", "--port", "${PORT}"]
+
