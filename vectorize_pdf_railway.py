@@ -14,7 +14,7 @@ import requests
 import threading
 
 # Iniciar aplicação FastAPI
-app = FastAPI()
+app = FastAPI(root_path="/")
 
 # Modelo de entrada para a rota POST
 class Item(BaseModel):
