@@ -44,11 +44,11 @@ def limpar_texto(texto):
 # Função para extrair texto do PDF por página
 def extract_text_from_pdf(file_url):
     all_text = []
-    response = requests.get(file_url)  # Baixa o PDF da URL fornecida
+    response = requests.get(file_url)
     if response.status_code != 200:
         raise Exception(f"Erro ao baixar o PDF: {response.status_code}")
     
-    pdf_file = BytesIO(response.content)  # Converte o conteúdo para um objeto BytesIO
+    pdf_file = BytesIO(response.content)
     with pdfplumber.open(pdf_file) as pdf:
         for page_number, page in enumerate(pdf.pages, start=1):
             text = page.extract_text()
@@ -58,7 +58,7 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-# Dividir texto por artigos (usando regex para detectar "Art.")
+# Dividir texto por artigos
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
     split_parts = re.split(pattern, text)
@@ -81,12 +81,12 @@ def get_embedding(text, model="text-embedding-3-small"):
 def generate_chunk_hash(chunk_text):
     return hashlib.sha256(chunk_text.encode()).hexdigest()
 
-# Verificar se o chunk já existe na tabela do Supabase
+# Verificar se o chunk já existe na tabela
 def check_chunk_exists(chunk_hash):
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     return bool(response.data)
 
-# Inserir chunks no Supabase
+# Inserir os embeddings
 def insert_embeddings_to_supabase(chunks_with_metadata):
     for i, item in enumerate(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
@@ -98,7 +98,7 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
-# Função para processar o PDF e gerar os embeddings
+# Processamento principal
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -116,7 +116,7 @@ def vectorize_pdf(file_url, condominio_id):
         print(f"🔎 Artigos detectados: {len(articles)}")
 
         for article in articles:
-            chunk = limpar_texto(article.strip())  # Limpeza de texto
+            chunk = limpar_texto(article.strip())
             if not chunk:
                 continue
             chunk_hash = generate_chunk_hash(chunk)
@@ -135,7 +135,7 @@ def vectorize_pdf(file_url, condominio_id):
                 "chunk_hash": chunk_hash,
                 "embedding": embedding
             })
-            time.sleep(0.5)  # Evitar rate limit da OpenAI
+            time.sleep(0.5)  # Evita rate limit da OpenAI
     return all_chunks
 
 @app.get("/")
@@ -151,10 +151,8 @@ async def vetorizar_pdf(item: Item):
         if not file_url or not condominio_id:
             return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
-        # Processar o PDF e gerar os embeddings
         vectorized_data = vectorize_pdf(file_url, condominio_id)
 
-        # Salvar os embeddings no Supabase
         if vectorized_data:
             insert_embeddings_to_supabase(vectorized_data)
             return {"message": "Vetorização completada com sucesso!"}, 200
