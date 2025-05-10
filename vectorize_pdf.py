@@ -13,32 +13,32 @@ from io import BytesIO
 import requests
 import threading
 
-# Inicializa FastAPI com suporte a root_path
+# Iniciar aplicação FastAPI
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
 
-# Modelo de entrada
+# Modelo de entrada para a rota POST
 class Item(BaseModel):
     file_url: str
     condominio_id: str
 
-# Carrega .env se existir
+# Carregar variáveis de ambiente
 load_dotenv()
 
-# Configura chaves
+# Configurações de API
 openai.api_key = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Cria cliente do Supabase
+# Cliente Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Garantir que o tokenizer esteja disponível
+# Garantir que o tokenizer do NLTK esteja disponível
 try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
     nltk.download("punkt")
 
-# Limpeza de texto
+# Limpar quebras de linha e espaços múltiplos
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
     return ' '.join(texto.split())
@@ -57,69 +57,75 @@ def extract_text_from_pdf(file_url):
             if text:
                 all_text.append((page_number, text.strip()))
             else:
-                print(f"⚠️ Página {page_number} sem texto.")
+                print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-# Dividir por artigos
+# Separar por artigos
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
-    parts = re.split(pattern, text)
+    split_parts = re.split(pattern, text)
+
     articles = []
-    for i in range(1, len(parts), 2):
-        numero = parts[i].strip()
-        conteudo = parts[i + 1].strip() if i + 1 < len(parts) else ''
-        articles.append(f"{numero} {conteudo}")
+    for i in range(1, len(split_parts), 2):
+        artigo_numero = split_parts[i].strip()
+        artigo_texto = split_parts[i + 1].strip() if i + 1 < len(split_parts) else ''
+        articles.append(f"{artigo_numero} {artigo_texto}")
     return articles
 
 # Gerar embedding
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
-        raise ValueError("Texto vazio!")
+        raise ValueError("Texto do chunk está vazio!")
     response = openai.embeddings.create(model=model, input=text)
     return response.data[0].embedding
 
-# Hash do chunk
+# Gerar hash
 def generate_chunk_hash(chunk_text):
     return hashlib.sha256(chunk_text.encode()).hexdigest()
 
-# Verifica duplicação
+# Verificar duplicidade
 def check_chunk_exists(chunk_hash):
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     return bool(response.data)
 
-# Insere embeddings
-def insert_embeddings_to_supabase(chunks):
-    for i, item in enumerate(chunks):
+# Inserir no Supabase
+def insert_embeddings_to_supabase(chunks_with_metadata):
+    for i, item in enumerate(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
             print(f"⚠️ Chunk {i+1} já existe. Pulando.")
             continue
         response = supabase.table("pdf_embeddings_textos").insert(item).execute()
         if response.data:
-            print(f"✅ Chunk {i+1} inserido!")
+            print(f"✅ Chunk {i+1} inserido com sucesso!")
         else:
-            print(f"❌ Erro ao inserir chunk {i+1}: {response}")
+            print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
-# Processamento principal
+# Processamento completo
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
-    print("📄 Extraindo texto...")
+
+    print("📄 Extraindo texto do PDF...")
     pages = extract_text_from_pdf(file_url)
     if not pages:
+        print("⚠️ Nenhum texto extraído.")
         return []
 
     all_chunks = []
     for page_number, page_text in pages:
+        print(f"✂️ Página {page_number}: dividindo por artigos...")
         articles = split_by_articles(page_text)
+        print(f"🔎 Artigos detectados: {len(articles)}")
+
         for article in articles:
-            chunk = limpar_texto(article)
+            chunk = limpar_texto(article.strip())
             if not chunk:
                 continue
             chunk_hash = generate_chunk_hash(chunk)
             try:
                 embedding = get_embedding(chunk)
             except Exception as e:
-                print(f"❌ Erro embedding: {e}")
+                print(f"❌ Erro ao gerar embedding: {e}")
                 embedding = None
 
             all_chunks.append({
@@ -134,27 +140,32 @@ def vectorize_pdf(file_url, condominio_id):
             time.sleep(0.5)
     return all_chunks
 
-# Rota de teste
+# Rota raiz para teste
 @app.get("/")
 def home():
     return {"message": "FastAPI está funcionando!"}
 
-# Rota de vetorização
+# Rota POST para vetorização
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
-        if not item.file_url or not item.condominio_id:
-            return {"error": "Parâmetros obrigatórios."}, 400
-        data = vectorize_pdf(item.file_url, item.condominio_id)
-        if data:
-            insert_embeddings_to_supabase(data)
+        file_url = item.file_url
+        condominio_id = item.condominio_id
+
+        if not file_url or not condominio_id:
+            return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
+
+        vectorized_data = vectorize_pdf(file_url, condominio_id)
+
+        if vectorized_data:
+            insert_embeddings_to_supabase(vectorized_data)
             return {"message": "Vetorização completada com sucesso!"}, 200
         else:
-            return {"error": "Nenhum texto encontrado."}, 500
+            return {"error": "Falha na vetorização."}, 500
     except Exception as e:
         return {"error": str(e)}, 500
 
-# Thread para manter ativo no Railway
+# Thread para manter app vivo no Railway
 def keep_alive():
     while True:
         print("🟢 App está rodando...")
