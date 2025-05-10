@@ -1,8 +1,8 @@
 [phases.setup]
-nixpkgs = ['python3', 'pip']
+nixpkgs = ['python3Full']
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
 
 [phases.start]
 cmd = "uvicorn vectorize_pdf_railway:app --host=0.0.0.0 --port=5000"
