@@ -11,23 +11,25 @@ import re
 from supabase import create_client, Client
 from io import BytesIO
 import requests
+import threading
 
-load_dotenv()  # Carregar variáveis de ambiente
-
-# Criando a aplicação FastAPI
+# Iniciar aplicação FastAPI
 app = FastAPI()
 
-# Definindo o modelo de dados para a requisição
+# Modelo de entrada para a rota POST
 class Item(BaseModel):
     file_url: str
     condominio_id: str
 
-# Configuração das chaves
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Chave da OpenAI
-SUPABASE_URL = os.getenv("SUPABASE_URL")  # URL do Supabase
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")  # Chave de serviço do Supabase
+# Carregar variáveis de ambiente
+load_dotenv()
 
-# Criando o cliente do Supabase
+# Configurações de API
+openai.api_key = os.getenv("OPENAI_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Cliente Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Garantir que o tokenizer do NLTK esteja disponível
@@ -36,12 +38,12 @@ try:
 except LookupError:
     nltk.download("punkt")
 
-# Função utilitária para limpar quebras de linha e múltiplos espaços
+# Limpar quebras de linha e espaços múltiplos
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
     return ' '.join(texto.split())
 
-# Função para extrair texto do PDF por página
+# Extrair texto do PDF
 def extract_text_from_pdf(file_url):
     all_text = []
     response = requests.get(file_url)
@@ -58,7 +60,7 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-# Dividir texto por artigos
+# Separar por artigos
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
     split_parts = re.split(pattern, text)
@@ -70,23 +72,23 @@ def split_by_articles(text):
         articles.append(f"{artigo_numero} {artigo_texto}")
     return articles
 
-# Gerar embedding com OpenAI
+# Gerar embedding
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
     response = openai.embeddings.create(model=model, input=text)
     return response.data[0].embedding
 
-# Gerar hash do chunk
+# Gerar hash
 def generate_chunk_hash(chunk_text):
     return hashlib.sha256(chunk_text.encode()).hexdigest()
 
-# Verificar se o chunk já existe na tabela
+# Verificar duplicidade
 def check_chunk_exists(chunk_hash):
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     return bool(response.data)
 
-# Inserir os embeddings
+# Inserir no Supabase
 def insert_embeddings_to_supabase(chunks_with_metadata):
     for i, item in enumerate(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
@@ -98,7 +100,7 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
-# Processamento principal
+# Processamento completo
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -135,13 +137,15 @@ def vectorize_pdf(file_url, condominio_id):
                 "chunk_hash": chunk_hash,
                 "embedding": embedding
             })
-            time.sleep(0.5)  # Evita rate limit da OpenAI
+            time.sleep(0.5)
     return all_chunks
 
+# Rota raiz para teste
 @app.get("/")
 def home():
     return {"message": "FastAPI está funcionando!"}
 
+# Rota POST para vetorização
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
@@ -160,3 +164,11 @@ async def vetorizar_pdf(item: Item):
             return {"error": "Falha na vetorização."}, 500
     except Exception as e:
         return {"error": str(e)}, 500
+
+# Thread para manter app vivo no Railway
+def keep_alive():
+    while True:
+        print("🟢 App está rodando...")
+        time.sleep(10)
+
+threading.Thread(target=keep_alive, daemon=True).start()
