@@ -17,4 +17,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "uvicorn vectorize_pdf:app --host=0.0.0.0 --port=${PORT:-5000}"]
+CMD ["sh", "-c", "uvicorn main:app --host=0.0.0.0 --port=${PORT:-5000}"]
