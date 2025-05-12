@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # 🔁 IMPORTAÇÃO ADICIONADA
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
@@ -16,6 +17,15 @@ import sys
 
 # Iniciar aplicação FastAPI
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
+
+# ✅ CORS - PERMITIR FLUTTERFLOW
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://regimentofacil.flutterflow.app"],  # ou ["*"] para testes
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Modelo de entrada para a rota POST
 class Item(BaseModel):
@@ -46,12 +56,10 @@ try:
 except LookupError:
     nltk.download("punkt")
 
-# Limpar quebras de linha e espaços múltiplos
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
     return ' '.join(texto.split())
 
-# Extrair texto do PDF
 def extract_text_from_pdf(file_url):
     all_text = []
     response = requests.get(file_url)
@@ -68,11 +76,9 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-# Separar por artigos
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
     split_parts = re.split(pattern, text)
-
     articles = []
     for i in range(1, len(split_parts), 2):
         artigo_numero = split_parts[i].strip()
@@ -80,23 +86,19 @@ def split_by_articles(text):
         articles.append(f"{artigo_numero} {artigo_texto}")
     return articles
 
-# Gerar embedding
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
     response = openai.embeddings.create(model=model, input=text)
     return response.data[0].embedding
 
-# Gerar hash
 def generate_chunk_hash(chunk_text):
     return hashlib.sha256(chunk_text.encode()).hexdigest()
 
-# Verificar duplicidade
 def check_chunk_exists(chunk_hash):
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     return bool(response.data)
 
-# Inserir no Supabase
 def insert_embeddings_to_supabase(chunks_with_metadata):
     for i, item in enumerate(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
@@ -108,7 +110,6 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
-# Processamento completo
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -148,13 +149,11 @@ def vectorize_pdf(file_url, condominio_id):
             time.sleep(0.5)
     return all_chunks
 
-# Verificar conexão com OpenAI
 def check_openai():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("❌ OPENAI_API_KEY não encontrada no arquivo .env")
         return False
-    
     try:
         openai.api_key = api_key
         response = openai.embeddings.create(model="text-embedding-3-small", input="Teste de conexão")
@@ -164,15 +163,12 @@ def check_openai():
         print(f"❌ Erro na conexão com a OpenAI: {str(e)}")
         return False
 
-# Verificar conexão com Supabase
 def check_supabase():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_KEY")
-    
     if not url or not key:
         print("❌ SUPABASE_URL ou SUPABASE_KEY não encontradas no arquivo .env")
         return False
-    
     try:
         supabase = create_client(url, key)
         response = supabase.table("pdf_embeddings_textos").select("count", count="exact").limit(1).execute()
@@ -183,12 +179,10 @@ def check_supabase():
         print(f"❌ Erro na conexão com o Supabase: {str(e)}")
         return False
 
-# Rota raiz para teste
 @app.get("/")
 def home():
     return {"message": "FastAPI está funcionando!"}
 
-# Rota POST para vetorização
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
@@ -219,12 +213,11 @@ async def vetorizar_pdf(item: Item):
         logger.exception(f"Erro não esperado: {str(e)}")
         return {"error": f"Erro interno: {str(e)}"}, 500
 
-# Ponto de entrada para execução direta
 if __name__ == "__main__":
     print("🔍 Verificando conexões com serviços externos...")
     openai_ok = check_openai()
     supabase_ok = check_supabase()
-    
+
     if openai_ok and supabase_ok:
         print("\n✅ Todos os serviços estão funcionando corretamente!")
         sys.exit(0)
