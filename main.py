@@ -1,5 +1,6 @@
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # 🔁 IMPORTAÇÃO ADICIONADA
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
@@ -14,43 +15,36 @@ from io import BytesIO
 import requests
 import logging
 import sys
+from datetime import datetime
 
-# Iniciar aplicação FastAPI
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
 
-# ✅ CORS - PERMITIR FLUTTERFLOW
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://regimentofacil.flutterflow.app"],  # ou ["*"] para testes
+    allow_origins=["https://regimentofacil.flutterflow.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Modelo de entrada para a rota POST
 class Item(BaseModel):
     file_url: str
     condominio_id: str
 
-# Configuração de logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Carregar variáveis de ambiente
 load_dotenv()
 
-# Configurações de API
 openai.api_key = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Cliente Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Garantir que o tokenizer do NLTK esteja disponível
 try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
@@ -65,7 +59,6 @@ def extract_text_from_pdf(file_url):
     response = requests.get(file_url)
     if response.status_code != 200:
         raise Exception(f"Erro ao baixar o PDF: {response.status_code}")
-    
     pdf_file = BytesIO(response.content)
     with pdfplumber.open(pdf_file) as pdf:
         for page_number, page in enumerate(pdf.pages, start=1):
@@ -113,7 +106,6 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
-
     print("📄 Extraindo texto do PDF...")
     pages = extract_text_from_pdf(file_url)
     if not pages:
@@ -199,6 +191,14 @@ async def vetorizar_pdf(item: Item):
         if vectorized_data:
             logger.info(f"Inserindo {len(vectorized_data)} chunks no Supabase")
             insert_embeddings_to_supabase(vectorized_data)
+
+            nome_documento = os.path.basename(file_url)
+            supabase.table("pdf_artigos_extraidos").update({
+                "vetorizado": True,
+                "vetorizado_em": datetime.utcnow().isoformat(),
+                "status": "completo"
+            }).eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
+
             return {"message": f"Vetorização completada com sucesso! {len(vectorized_data)} chunks processados."}
         else:
             logger.warning("Nenhum dado foi vetorizado")
