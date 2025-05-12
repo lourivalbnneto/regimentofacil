@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -185,6 +184,18 @@ async def vetorizar_pdf(item: Item):
             logger.error("Parâmetros obrigatórios ausentes")
             return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
+        nome_documento = os.path.basename(file_url)
+
+        # ✅ Inserir artigo se ainda não existir
+        verifica = supabase.table("pdf_artigos_extraidos").select("id").eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
+        if not verifica.data:
+            logger.info("Inserindo novo registro em pdf_artigos_extraidos")
+            supabase.table("pdf_artigos_extraidos").insert({
+                "condominio_id": condominio_id,
+                "nome_documento": nome_documento,
+                "status": "pendente"
+            }).execute()
+
         logger.info(f"Iniciando processamento do PDF: {file_url}")
         vectorized_data = vectorize_pdf(file_url, condominio_id)
 
@@ -192,7 +203,6 @@ async def vetorizar_pdf(item: Item):
             logger.info(f"Inserindo {len(vectorized_data)} chunks no Supabase")
             insert_embeddings_to_supabase(vectorized_data)
 
-            nome_documento = os.path.basename(file_url)
             supabase.table("pdf_artigos_extraidos").update({
                 "vetorizado": True,
                 "vetorizado_em": datetime.utcnow().isoformat(),
