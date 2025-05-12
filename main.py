@@ -196,6 +196,13 @@ async def vetorizar_pdf(item: Item):
                 "status": "pendente"
             }).execute()
 
+        # 🔁 Excluir chunks antigos do mesmo documento antes de vetorizar novamente
+        supabase.table("pdf_embeddings_textos") \
+            .delete() \
+            .eq("condominio_id", condominio_id) \
+            .eq("nome_documento", nome_documento) \
+            .execute()
+
         logger.info(f"Iniciando processamento do PDF: {file_url}")
         vectorized_data = vectorize_pdf(file_url, condominio_id)
 
