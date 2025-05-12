@@ -216,7 +216,10 @@ async def vetorizar_pdf(item: Item):
                 "status": "completo"
             }).eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
 
-            return {"message": f"Vetorização completada com sucesso! {len(vectorized_data)} chunks processados."}
+            return {
+    "success": True,
+    "message": f"Vetorização completada com sucesso! {len(vectorized_data)} chunks processados."
+}
         else:
             logger.warning("Nenhum dado foi vetorizado")
             return {"error": "Nenhum dado foi extraído do PDF."}, 400
