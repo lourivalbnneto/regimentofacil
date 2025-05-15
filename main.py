@@ -68,19 +68,10 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def split_article_into_chunks(article_text):
-    # Divide incisos (I., 1., a), etc.)
-    pattern = r'(\n\s*(?:[IVXLCDM]+\.)|\n\s*\d+\.)|\n\s*[a-z]\)'
-    parts = re.split(pattern, article_text)
-    chunks = []
-    if len(parts) == 1:
-        chunks.append(article_text.strip())
-    else:
-        base = parts[0].strip()
-        for i in range(1, len(parts), 2):
-            heading = parts[i].strip()
-            content = parts[i+1].strip() if i+1 < len(parts) else ''
-            chunks.append(f"{heading} {content}".strip())
-    return chunks
+    # Separa incisos, alíneas e parágrafos numerados
+    pattern = r'(?=\n?\s*(?:[IVXLCDM]+\.)|(?:\d+\.)|(?:[a-z]\)))'
+    chunks = re.split(pattern, article_text)
+    return [limpar_texto(chunk) for chunk in chunks if limpar_texto(chunk)]
 
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
@@ -140,8 +131,8 @@ def vectorize_pdf(file_url, condominio_id):
                 try:
                     embedding = get_embedding(chunk)
                 except Exception as e:
-                    print(f"❌ Erro ao gerar embedding: {e}")
-                    embedding = None
+                    print(f"❌ Erro ao gerar embedding para chunk:\n{chunk[:80]}...\nErro: {e}")
+                    continue
                 all_chunks.append({
                     "condominio_id": condominio_id,
                     "nome_documento": nome_documento,
@@ -152,6 +143,7 @@ def vectorize_pdf(file_url, condominio_id):
                     "embedding": embedding
                 })
                 time.sleep(0.5)
+    print(f"✅ Total de chunks gerados: {len(all_chunks)}")
     return all_chunks
 
 @app.post("/vetorizar")
