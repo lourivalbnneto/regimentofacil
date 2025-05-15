@@ -16,6 +16,7 @@ import logging
 import sys
 from datetime import datetime
 
+# Configuração inicial
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
 
 app.add_middleware(
@@ -37,7 +38,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 load_dotenv()
-
 openai.api_key = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -47,6 +47,8 @@ try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
     nltk.download("punkt")
+
+usar_subdivisao = True  # ✅ Alterna entre artigo completo ou subartigos
 
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
@@ -67,12 +69,6 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-def split_article_into_chunks(article_text):
-    # Subdivide por incisos/alíneas/parágrafos (I., 1., a))
-    pattern = r'(?=\n?\s*(?:[IVXLCDM]+\.)|(?:\d+\.)|(?:[a-z]\)))'
-    chunks = re.split(pattern, article_text)
-    return [limpar_texto(chunk) for chunk in chunks if limpar_texto(chunk)]
-
 def split_by_articles(text):
     pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
     split_parts = re.split(pattern, text)
@@ -82,6 +78,10 @@ def split_by_articles(text):
         artigo_texto = split_parts[i + 1].strip() if i + 1 < len(split_parts) else ''
         articles.append((artigo_numero, artigo_texto))
     return articles
+
+def split_into_subchunks(text):
+    subchunks = re.split(r'(?=\n?[IVXLCDM]+\.)|(?=\n?\d+\.)|(?=\n?[a-zA-Z]\))', text)
+    return [limpar_texto(c.strip()) for c in subchunks if c.strip()]
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -101,11 +101,15 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
             print(f"⚠️ Chunk {i+1} já existe. Pulando.")
             continue
-        response = supabase.table("pdf_embeddings_textos").insert(item).execute()
-        if response.data:
-            print(f"✅ Chunk {i+1} inserido com sucesso!")
-        else:
-            print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
+        try:
+            response = supabase.table("pdf_embeddings_textos").insert(item).execute()
+            if response.data:
+                print(f"✅ Chunk {i+1} inserido com sucesso!")
+            else:
+                print(f"❌ Erro ao inserir chunk {i+1}. Resposta vazia: {response}")
+        except Exception as e:
+            print(f"❌ Erro ao inserir chunk {i+1}: {e}")
+            print(f"📦 Dados problemáticos: {item}")
 
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
@@ -121,21 +125,26 @@ def vectorize_pdf(file_url, condominio_id):
         print(f"✂️ Página {page_number}: dividindo por artigos...")
         articles = split_by_articles(page_text)
         print(f"🔎 Artigos detectados: {len(articles)}")
+
         for artigo_numero, artigo_texto in articles:
-            sub_chunks = split_article_into_chunks(artigo_texto)
-            for i, sub in enumerate(sub_chunks):
-                if not sub.strip():
+            chunks = [artigo_texto]
+            if usar_subdivisao:
+                sub = split_into_subchunks(artigo_texto)
+                if sub:
+                    chunks = sub
+                    print(f"🧩 {len(sub)} subchunks extraídos de {artigo_numero}")
+
+            for idx, chunk_text in enumerate(chunks):
+                chunk = limpar_texto(chunk_text)
+                if not chunk or len(chunk) < 20:
                     continue
-                if i == 0:
-                    chunk = limpar_texto(f"{artigo_numero} {sub}")
-                else:
-                    chunk = limpar_texto(sub)
-                chunk_hash = generate_chunk_hash(chunk)
                 try:
                     embedding = get_embedding(chunk)
                 except Exception as e:
-                    print(f"❌ Erro ao gerar embedding para chunk:\n{chunk[:80]}...\nErro: {e}")
+                    print(f"❌ Erro ao gerar embedding: {e}")
                     continue
+
+                chunk_hash = generate_chunk_hash(chunk)
                 all_chunks.append({
                     "condominio_id": condominio_id,
                     "nome_documento": nome_documento,
@@ -143,50 +152,108 @@ def vectorize_pdf(file_url, condominio_id):
                     "pagina": page_number,
                     "chunk_text": chunk,
                     "chunk_hash": chunk_hash,
-                    "embedding": embedding,
-                    "artigo_numero": artigo_numero
+                    "embedding": embedding
                 })
                 time.sleep(0.5)
     print(f"✅ Total de chunks gerados: {len(all_chunks)}")
     return all_chunks
+
+def check_openai():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("❌ OPENAI_API_KEY não encontrada no arquivo .env")
+        return False
+    try:
+        openai.api_key = api_key
+        response = openai.embeddings.create(model="text-embedding-3-small", input="Teste de conexão")
+        print("✅ Conexão com a OpenAI estabelecida com sucesso!")
+        return True
+    except Exception as e:
+        print(f"❌ Erro na conexão com a OpenAI: {str(e)}")
+        return False
+
+def check_supabase():
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        print("❌ SUPABASE_URL ou SUPABASE_KEY não encontradas no arquivo .env")
+        return False
+    try:
+        supabase = create_client(url, key)
+        response = supabase.table("pdf_embeddings_textos").select("count", count="exact").limit(1).execute()
+        count = response.count
+        print(f"✅ Conexão com o Supabase estabelecida com sucesso! ({count} registros na tabela)")
+        return True
+    except Exception as e:
+        print(f"❌ Erro na conexão com o Supabase: {str(e)}")
+        return False
+
+@app.get("/")
+def home():
+    return {"message": "FastAPI está funcionando!"}
 
 @app.post("/vetorizar")
 async def vetorizar_pdf(item: Item):
     try:
         file_url = item.file_url
         condominio_id = item.condominio_id
+
         if not file_url or not condominio_id:
-            return {"error": "Parâmetros obrigatórios ausentes"}, 400
+            logger.error("Parâmetros obrigatórios ausentes")
+            return {"error": "Parâmetros 'file_url' e 'condominio_id' são obrigatórios."}, 400
 
         nome_documento = os.path.basename(file_url)
+
         verifica = supabase.table("pdf_artigos_extraidos").select("id").eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
         if not verifica.data:
+            logger.info("Inserindo novo registro em pdf_artigos_extraidos")
             supabase.table("pdf_artigos_extraidos").insert({
                 "condominio_id": condominio_id,
                 "nome_documento": nome_documento,
                 "status": "pendente"
             }).execute()
 
-        supabase.table("pdf_embeddings_textos").delete().eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
+        supabase.table("pdf_embeddings_textos") \
+            .delete() \
+            .eq("condominio_id", condominio_id) \
+            .eq("nome_documento", nome_documento) \
+            .execute()
 
+        logger.info(f"Iniciando processamento do PDF: {file_url}")
         vectorized_data = vectorize_pdf(file_url, condominio_id)
+
         if vectorized_data:
+            logger.info(f"Inserindo {len(vectorized_data)} chunks no Supabase")
             insert_embeddings_to_supabase(vectorized_data)
+
             supabase.table("pdf_artigos_extraidos").update({
                 "vetorizado": True,
                 "vetorizado_em": datetime.utcnow().isoformat(),
                 "status": "completo"
             }).eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
-            return {"success": True, "message": f"Vetorização completada com sucesso! {len(vectorized_data)} chunks processados."}
+
+            return {
+                "success": True,
+                "message": f"Vetorização completada com sucesso! {len(vectorized_data)} chunks processados."
+            }
         else:
+            logger.warning("Nenhum dado foi vetorizado")
             return {"error": "Nenhum dado foi extraído do PDF."}, 400
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Erro ao baixar o PDF: {str(e)}")
+        return {"error": f"Erro ao baixar o PDF: {str(e)}"}, 500
+    except openai.OpenAIError as e:
+        logger.error(f"Erro na API da OpenAI: {str(e)}")
+        return {"error": f"Erro na API da OpenAI: {str(e)}"}, 500
     except Exception as e:
+        logger.exception(f"Erro não esperado: {str(e)}")
         return {"error": f"Erro interno: {str(e)}"}, 500
 
 if __name__ == "__main__":
     print("🔍 Verificando conexões com serviços externos...")
-    openai_ok = openai.api_key is not None
-    supabase_ok = SUPABASE_URL and SUPABASE_KEY
+    openai_ok = check_openai()
+    supabase_ok = check_supabase()
+
     if openai_ok and supabase_ok:
         print("\n✅ Todos os serviços estão funcionando corretamente!")
         sys.exit(0)
