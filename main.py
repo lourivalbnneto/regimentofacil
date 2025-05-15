@@ -68,7 +68,7 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def split_article_into_chunks(article_text):
-    # Separa incisos, alíneas e parágrafos numerados
+    # Subdivide por incisos/alíneas/parágrafos (I., 1., a))
     pattern = r'(?=\n?\s*(?:[IVXLCDM]+\.)|(?:\d+\.)|(?:[a-z]\)))'
     chunks = re.split(pattern, article_text)
     return [limpar_texto(chunk) for chunk in chunks if limpar_texto(chunk)]
@@ -123,10 +123,13 @@ def vectorize_pdf(file_url, condominio_id):
         print(f"🔎 Artigos detectados: {len(articles)}")
         for artigo_numero, artigo_texto in articles:
             sub_chunks = split_article_into_chunks(artigo_texto)
-            for sub in sub_chunks:
-                chunk = limpar_texto(f"{artigo_numero} {sub}".strip())
-                if not chunk:
+            for i, sub in enumerate(sub_chunks):
+                if not sub.strip():
                     continue
+                if i == 0:
+                    chunk = limpar_texto(f"{artigo_numero} {sub}")
+                else:
+                    chunk = limpar_texto(sub)
                 chunk_hash = generate_chunk_hash(chunk)
                 try:
                     embedding = get_embedding(chunk)
@@ -140,7 +143,8 @@ def vectorize_pdf(file_url, condominio_id):
                     "pagina": page_number,
                     "chunk_text": chunk,
                     "chunk_hash": chunk_hash,
-                    "embedding": embedding
+                    "embedding": embedding,
+                    "artigo_numero": artigo_numero
                 })
                 time.sleep(0.5)
     print(f"✅ Total de chunks gerados: {len(all_chunks)}")
