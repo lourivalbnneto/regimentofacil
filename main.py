@@ -88,7 +88,6 @@ def extrair_referencia(paragrafo):
     return ' | '.join(dict.fromkeys(referencia))  # remove duplicatas mantendo ordem
 
 def extrair_chunks_com_referencias(texto):
-    """Divide o texto por marcadores legais (Art., §, I., a), etc.) e associa cada trecho à sua referência."""
     pattern = re.compile(r'''
         (?=
             \s*
@@ -103,25 +102,26 @@ def extrair_chunks_com_referencias(texto):
     ''', re.VERBOSE)
 
     partes = re.split(pattern, texto)
-    chunks = []
+    blocos = []
 
     for i in range(1, len(partes), 2):
         marcador = partes[i].strip()
         conteudo = partes[i + 1].strip() if i + 1 < len(partes) else ""
-        paragrafo = f"{marcador} {conteudo}".strip()
-        paragrafo_limpo = limpar_texto(paragrafo)
 
-        if not paragrafo_limpo:
-            continue
+        texto_chunk = f"{marcador} {conteudo}".strip()
+        texto_limpo = limpar_texto(texto_chunk)
 
-        referencia = extrair_referencia(paragrafo_limpo)
+        if len(texto_limpo) < 15:
+            continue  # ignora pedaços curtos e soltos como "l." ou "m."
 
-        chunks.append({
-            "texto": f"{referencia}: {paragrafo_limpo}" if referencia else paragrafo_limpo,
+        referencia = extrair_referencia(texto_limpo)
+
+        blocos.append({
+            "texto": f"{referencia}: {texto_limpo}" if referencia else texto_limpo,
             "referencia": referencia
         })
 
-    return chunks
+    return blocos
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
