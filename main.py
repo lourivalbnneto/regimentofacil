@@ -68,24 +68,9 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-def split_by_articles(text):
-    pattern_artigo = r'(Art(?:igo)?\.?\s*\d+[\u00ba\u00b0o]?)'
-    split_parts = re.split(pattern_artigo, text)
-    articles = []
-
-    for i in range(1, len(split_parts), 2):
-        artigo_numero = split_parts[i].strip()
-        artigo_texto = split_parts[i + 1].strip() if i + 1 < len(split_parts) else ''
-        full_artigo = f"{artigo_numero} {artigo_texto}"
-
-        sub_chunks = re.split(r'(?=(?:[IVXLCDM]{1,4}\.|[a-z]\)|\d+\.)\s)', full_artigo)
-
-        for chunk in sub_chunks:
-            clean = limpar_texto(chunk)
-            if clean:
-                articles.append(clean)
-
-    return articles
+def split_by_paragraphs(text):
+    paragrafos = re.split(r'\n\s*\n+', text)
+    return [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -122,12 +107,12 @@ def vectorize_pdf(file_url, condominio_id):
 
     all_chunks = []
     for page_number, page_text in pages:
-        print(f"✂️ Página {page_number}: dividindo por artigos...")
-        articles = split_by_articles(page_text)
-        print(f"🔎 Artigos e subartigos detectados: {len(articles)}")
+        print(f"✂️ Página {page_number}: dividindo por parágrafos...")
+        paragraphs = split_by_paragraphs(page_text)
+        print(f"🔎 Parágrafos detectados: {len(paragraphs)}")
 
-        for article in articles:
-            chunk = limpar_texto(article.strip())
+        for paragraph in paragraphs:
+            chunk = limpar_texto(paragraph.strip())
             if not chunk:
                 continue
             chunk_hash = generate_chunk_hash(chunk)
