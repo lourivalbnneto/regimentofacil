@@ -68,26 +68,38 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-def split_by_paragraphs(text):
-    # Tenta separar por quebras de parágrafo
-    paragrafos = re.split(r'\n\s*\n+', text)
-    paragrafos = [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
+def identificar_referencia(texto):
+    match_artigo = re.search(r'(Art(?:igo)?\.?\s*\d+[ºo]?)', texto, re.IGNORECASE)
+    match_inciso = re.search(r'\b([IVXLCDM]{1,5}|[0-9]+)[.)]\s', texto)
+    match_alinea = re.search(r'\b([a-z]{1})[)]\s', texto)
 
-    # Fallback: se muito poucos blocos, usa sentenças agrupadas
-    if len(paragrafos) < 50:
-        print(f"⚠️ Apenas {len(paragrafos)} blocos detectados com \\n\\n. Usando fallback por sentenças.")
-        sentencas = nltk.tokenize.sent_tokenize(text)
-        paragrafos = []
-        buffer = ""
-        for sent in sentencas:
-            if len(buffer) + len(sent) < 600:
-                buffer += " " + sent
-            else:
-                paragrafos.append(limpar_texto(buffer.strip()))
-                buffer = sent
-        if buffer:
-            paragrafos.append(limpar_texto(buffer.strip()))
-    return paragrafos
+    partes = []
+    if match_artigo:
+        partes.append(match_artigo.group(1).strip())
+    if match_inciso and not match_inciso.group(1).isdigit():
+        partes.append(f"Inciso {match_inciso.group(1)}")
+    elif match_inciso:
+        partes.append(f"Nº {match_inciso.group(1)}")
+    if match_alinea:
+        partes.append(f"alínea {match_alinea.group(1)})")
+
+    return " | ".join(partes) if partes else ""
+
+def split_by_paragraphs(text):
+    linhas = text.split("\n")
+    paragrafos = []
+    buffer = ""
+    for linha in linhas:
+        linha = linha.strip()
+        if not linha:
+            if buffer:
+                paragrafos.append(buffer.strip())
+                buffer = ""
+        else:
+            buffer += " " + linha
+    if buffer:
+        paragrafos.append(buffer.strip())
+    return [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -129,9 +141,13 @@ def vectorize_pdf(file_url, condominio_id):
         print(f"🔎 Parágrafos detectados: {len(paragraphs)}")
 
         for paragraph in paragraphs:
-            chunk = limpar_texto(paragraph.strip())
-            if not chunk:
+            chunk_base = limpar_texto(paragraph.strip())
+            if not chunk_base:
                 continue
+
+            referencia = identificar_referencia(chunk_base)
+            chunk = f"{referencia}: {chunk_base}" if referencia else chunk_base
+
             chunk_hash = generate_chunk_hash(chunk)
             try:
                 embedding = get_embedding(chunk)
