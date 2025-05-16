@@ -68,38 +68,36 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-def identificar_referencia(texto):
-    match_artigo = re.search(r'(Art(?:igo)?\.?\s*\d+[ºo]?)', texto, re.IGNORECASE)
-    match_inciso = re.search(r'\b([IVXLCDM]{1,5}|[0-9]+)[.)]\s', texto)
-    match_alinea = re.search(r'\b([a-z]{1})[)]\s', texto)
+def split_by_paragraphs_with_referencia(text):
+    pattern = r'(?=(Art(?:igo)?\.?\s*\d+[ºo]?|[IVXLCDM]{1,5}[.)]|[a-z]{1}[)]))'
+    raw_chunks = re.split(pattern, text)
+    final_chunks = []
 
-    partes = []
-    if match_artigo:
-        partes.append(match_artigo.group(1).strip())
-    if match_inciso and not match_inciso.group(1).isdigit():
-        partes.append(f"Inciso {match_inciso.group(1)}")
-    elif match_inciso:
-        partes.append(f"Nº {match_inciso.group(1)}")
-    if match_alinea:
-        partes.append(f"alínea {match_alinea.group(1)})")
-
-    return " | ".join(partes) if partes else ""
-
-def split_by_paragraphs(text):
-    linhas = text.split("\n")
-    paragrafos = []
+    current_referencia = ""
     buffer = ""
-    for linha in linhas:
-        linha = linha.strip()
-        if not linha:
-            if buffer:
-                paragrafos.append(buffer.strip())
-                buffer = ""
-        else:
-            buffer += " " + linha
-    if buffer:
-        paragrafos.append(buffer.strip())
-    return [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
+
+    for i in range(1, len(raw_chunks), 2):
+        marcador = raw_chunks[i].strip()
+        trecho = raw_chunks[i + 1].strip() if i + 1 < len(raw_chunks) else ""
+
+        # Detecta tipo da referência
+        if re.match(r'Art', marcador, re.IGNORECASE):
+            current_referencia = marcador
+        elif re.match(r'[IVXLCDM]{1,5}[.)]', marcador):
+            current_referencia += f" | Inciso {marcador}"
+        elif re.match(r'[a-z]{1}[)]', marcador):
+            current_referencia += f" | alínea {marcador}"
+
+        paragrafo = f"{marcador} {trecho}".strip()
+        paragrafo = limpar_texto(paragrafo)
+
+        if paragrafo:
+            final_chunks.append({
+                "referencia": current_referencia.strip(" |"),
+                "texto": paragrafo
+            })
+
+    return final_chunks
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -136,21 +134,18 @@ def vectorize_pdf(file_url, condominio_id):
 
     all_chunks = []
     for page_number, page_text in pages:
-        print(f"✂️ Página {page_number}: dividindo por parágrafos...")
-        paragraphs = split_by_paragraphs(page_text)
-        print(f"🔎 Parágrafos detectados: {len(paragraphs)}")
+        print(f"✂️ Página {page_number}: dividindo por parágrafos e referências...")
+        chunks = split_by_paragraphs_with_referencia(page_text)
+        print(f"🔎 Chunks detectados: {len(chunks)}")
 
-        for paragraph in paragraphs:
-            chunk_base = limpar_texto(paragraph.strip())
-            if not chunk_base:
-                continue
+        for chunk_obj in chunks:
+            referencia = chunk_obj["referencia"]
+            texto_base = chunk_obj["texto"]
+            texto_completo = f"{referencia}: {texto_base}" if referencia else texto_base
 
-            referencia = identificar_referencia(chunk_base)
-            chunk = f"{referencia}: {chunk_base}" if referencia else chunk_base
-
-            chunk_hash = generate_chunk_hash(chunk)
+            chunk_hash = generate_chunk_hash(texto_completo)
             try:
-                embedding = get_embedding(chunk)
+                embedding = get_embedding(texto_completo)
             except Exception as e:
                 print(f"❌ Erro ao gerar embedding: {e}")
                 embedding = None
@@ -160,9 +155,10 @@ def vectorize_pdf(file_url, condominio_id):
                 "nome_documento": nome_documento,
                 "origem": origem,
                 "pagina": page_number,
-                "chunk_text": chunk,
+                "chunk_text": texto_completo,
                 "chunk_hash": chunk_hash,
-                "embedding": embedding
+                "embedding": embedding,
+                "referencia_detectada": referencia
             })
             time.sleep(0.5)
     return all_chunks
