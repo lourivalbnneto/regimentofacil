@@ -16,7 +16,6 @@ import logging
 import sys
 from datetime import datetime
 
-# Configuração inicial
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
 
 app.add_middleware(
@@ -38,17 +37,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
     nltk.download("punkt")
-
-usar_subdivisao = True  # ✅ Alterna entre artigo completo ou subartigos
 
 def limpar_texto(texto):
     texto = texto.replace('\n', ' ').replace('\r', ' ')
@@ -70,18 +69,16 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def split_by_articles(text):
-    pattern = r'(Art(?:igo)?\.?\s*\d+[ºo]?)'
+    pattern = r'(Art(?:igo)?\.?\s*\d+[\u00ba\u00b0o]?)'
     split_parts = re.split(pattern, text)
     articles = []
     for i in range(1, len(split_parts), 2):
         artigo_numero = split_parts[i].strip()
         artigo_texto = split_parts[i + 1].strip() if i + 1 < len(split_parts) else ''
-        articles.append((artigo_numero, artigo_texto))
+        full_artigo = f"{artigo_numero} {artigo_texto}"
+        sub_chunks = re.split(r'(?<=\.)\s+(?=[IVXLCDMivxlcdm]{1,5}[).])', full_artigo)
+        articles.extend([limpar_texto(chunk) for chunk in sub_chunks if chunk.strip()])
     return articles
-
-def split_into_subchunks(text):
-    subchunks = re.split(r'(?=\n?[IVXLCDM]+\.)|(?=\n?\d+\.)|(?=\n?[a-zA-Z]\))', text)
-    return [limpar_texto(c.strip()) for c in subchunks if c.strip()]
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -101,15 +98,11 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
         if check_chunk_exists(item["chunk_hash"]):
             print(f"⚠️ Chunk {i+1} já existe. Pulando.")
             continue
-        try:
-            response = supabase.table("pdf_embeddings_textos").insert(item).execute()
-            if response.data:
-                print(f"✅ Chunk {i+1} inserido com sucesso!")
-            else:
-                print(f"❌ Erro ao inserir chunk {i+1}. Resposta vazia: {response}")
-        except Exception as e:
-            print(f"❌ Erro ao inserir chunk {i+1}: {e}")
-            print(f"📦 Dados problemáticos: {item}")
+        response = supabase.table("pdf_embeddings_textos").insert(item).execute()
+        if response.data:
+            print(f"✅ Chunk {i+1} inserido com sucesso!")
+        else:
+            print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
 
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
@@ -126,36 +119,27 @@ def vectorize_pdf(file_url, condominio_id):
         articles = split_by_articles(page_text)
         print(f"🔎 Artigos detectados: {len(articles)}")
 
-        for artigo_numero, artigo_texto in articles:
-            chunks = [artigo_texto]
-            if usar_subdivisao:
-                sub = split_into_subchunks(artigo_texto)
-                if sub:
-                    chunks = sub
-                    print(f"🧩 {len(sub)} subchunks extraídos de {artigo_numero}")
+        for article in articles:
+            chunk = limpar_texto(article.strip())
+            if not chunk:
+                continue
+            chunk_hash = generate_chunk_hash(chunk)
+            try:
+                embedding = get_embedding(chunk)
+            except Exception as e:
+                print(f"❌ Erro ao gerar embedding: {e}")
+                embedding = None
 
-            for idx, chunk_text in enumerate(chunks):
-                chunk = limpar_texto(chunk_text)
-                if not chunk or len(chunk) < 20:
-                    continue
-                try:
-                    embedding = get_embedding(chunk)
-                except Exception as e:
-                    print(f"❌ Erro ao gerar embedding: {e}")
-                    continue
-
-                chunk_hash = generate_chunk_hash(chunk)
-                all_chunks.append({
-                    "condominio_id": condominio_id,
-                    "nome_documento": nome_documento,
-                    "origem": origem,
-                    "pagina": page_number,
-                    "chunk_text": chunk,
-                    "chunk_hash": chunk_hash,
-                    "embedding": embedding
-                })
-                time.sleep(0.5)
-    print(f"✅ Total de chunks gerados: {len(all_chunks)}")
+            all_chunks.append({
+                "condominio_id": condominio_id,
+                "nome_documento": nome_documento,
+                "origem": origem,
+                "pagina": page_number,
+                "chunk_text": chunk,
+                "chunk_hash": chunk_hash,
+                "embedding": embedding
+            })
+            time.sleep(0.5)
     return all_chunks
 
 def check_openai():
@@ -213,11 +197,7 @@ async def vetorizar_pdf(item: Item):
                 "status": "pendente"
             }).execute()
 
-        supabase.table("pdf_embeddings_textos") \
-            .delete() \
-            .eq("condominio_id", condominio_id) \
-            .eq("nome_documento", nome_documento) \
-            .execute()
+        supabase.table("pdf_embeddings_textos").delete().eq("condominio_id", condominio_id).eq("nome_documento", nome_documento).execute()
 
         logger.info(f"Iniciando processamento do PDF: {file_url}")
         vectorized_data = vectorize_pdf(file_url, condominio_id)
