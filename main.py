@@ -68,36 +68,29 @@ def extract_text_from_pdf(file_url):
                 print(f"⚠️ Página {page_number} sem texto extraível.")
     return all_text
 
-def split_by_paragraphs_with_referencia(text):
-    pattern = r'(?=(Art(?:igo)?\.?\s*\d+[ºo]?|[IVXLCDM]{1,5}[.)]|[a-z]{1}[)]))'
-    raw_chunks = re.split(pattern, text)
-    final_chunks = []
+def extrair_referencia(paragrafo):
+    """Extrai a referência mais relevante de um parágrafo."""
+    paragrafo = paragrafo.strip()
+    referencias = []
 
-    current_referencia = ""
-    buffer = ""
+    match_artigo = re.search(r'(Art(?:igo)?\.?\s*\d+[ºo]?)', paragrafo, re.IGNORECASE)
+    if match_artigo:
+        referencias.append(match_artigo.group(1).strip())
 
-    for i in range(1, len(raw_chunks), 2):
-        marcador = raw_chunks[i].strip()
-        trecho = raw_chunks[i + 1].strip() if i + 1 < len(raw_chunks) else ""
+    match_inciso = re.search(r'\b([IVXLCDM]{1,5})[.)]\s', paragrafo)
+    if match_inciso:
+        referencias.append(f"Inciso {match_inciso.group(1)}")
 
-        # Detecta tipo da referência
-        if re.match(r'Art', marcador, re.IGNORECASE):
-            current_referencia = marcador
-        elif re.match(r'[IVXLCDM]{1,5}[.)]', marcador):
-            current_referencia += f" | Inciso {marcador}"
-        elif re.match(r'[a-z]{1}[)]', marcador):
-            current_referencia += f" | alínea {marcador}"
+    match_alinea = re.search(r'\b([a-z]{1})[)]\s', paragrafo)
+    if match_alinea:
+        referencias.append(f"alínea {match_alinea.group(1)})")
 
-        paragrafo = f"{marcador} {trecho}".strip()
-        paragrafo = limpar_texto(paragrafo)
+    return " | ".join(referencias) if referencias else ""
 
-        if paragrafo:
-            final_chunks.append({
-                "referencia": current_referencia.strip(" |"),
-                "texto": paragrafo
-            })
-
-    return final_chunks
+def split_em_paragrafos(texto):
+    """Divide o texto em parágrafos usando pontuação e/ou quebras de linha."""
+    blocos = re.split(r'(?:\n\s*\n+|(?<=[.!?])\s{2,})', texto)
+    return [limpar_texto(bloco) for bloco in blocos if limpar_texto(bloco)]
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
@@ -134,16 +127,15 @@ def vectorize_pdf(file_url, condominio_id):
 
     all_chunks = []
     for page_number, page_text in pages:
-        print(f"✂️ Página {page_number}: dividindo por parágrafos e referências...")
-        chunks = split_by_paragraphs_with_referencia(page_text)
-        print(f"🔎 Chunks detectados: {len(chunks)}")
+        print(f"✂️ Página {page_number}: separando por parágrafos...")
+        paragrafos = split_em_paragrafos(page_text)
+        print(f"🔎 Parágrafos detectados: {len(paragrafos)}")
 
-        for chunk_obj in chunks:
-            referencia = chunk_obj["referencia"]
-            texto_base = chunk_obj["texto"]
-            texto_completo = f"{referencia}: {texto_base}" if referencia else texto_base
-
+        for paragrafo in paragrafos:
+            referencia = extrair_referencia(paragrafo)
+            texto_completo = f"{referencia}: {paragrafo}" if referencia else paragrafo
             chunk_hash = generate_chunk_hash(texto_completo)
+
             try:
                 embedding = get_embedding(texto_completo)
             except Exception as e:
