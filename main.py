@@ -69,8 +69,25 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def split_by_paragraphs(text):
+    # Tenta separar por quebras de parágrafo
     paragrafos = re.split(r'\n\s*\n+', text)
-    return [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
+    paragrafos = [limpar_texto(p) for p in paragrafos if limpar_texto(p)]
+
+    # Fallback: se muito poucos blocos, usa sentenças agrupadas
+    if len(paragrafos) < 50:
+        print(f"⚠️ Apenas {len(paragrafos)} blocos detectados com \\n\\n. Usando fallback por sentenças.")
+        sentencas = nltk.tokenize.sent_tokenize(text)
+        paragrafos = []
+        buffer = ""
+        for sent in sentencas:
+            if len(buffer) + len(sent) < 600:
+                buffer += " " + sent
+            else:
+                paragrafos.append(limpar_texto(buffer.strip()))
+                buffer = sent
+        if buffer:
+            paragrafos.append(limpar_texto(buffer.strip()))
+    return paragrafos
 
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
