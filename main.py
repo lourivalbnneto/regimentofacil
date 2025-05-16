@@ -42,6 +42,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 def limpar_texto(texto):
     texto = texto.replace('\r', ' ').replace('\n', ' ')
     return ' '.join(texto.strip().split())
@@ -62,7 +63,6 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def extrair_referencia(paragrafo):
-    """Extrai a principal referência do parágrafo, se houver."""
     referencia = []
 
     match_artigo = re.search(r'\b(Art(?:igo)?\.?\s*\d+[º°o]?)', paragrafo, re.IGNORECASE)
@@ -73,11 +73,11 @@ def extrair_referencia(paragrafo):
     if match_paragrafo:
         referencia.append(match_paragrafo.group(1).strip())
 
-    match_inciso = re.search(r'\b([IVXLCDM]+)[.)-]', paragrafo)
+    match_inciso = re.search(r'\b([IVXLCDM]+)[).]', paragrafo)
     if match_inciso:
         referencia.append(f"Inciso {match_inciso.group(1)}")
 
-    match_alinea = re.search(r'\b([a-zA-Z])[.)-]', paragrafo)
+    match_alinea = re.search(r'\b([a-zA-Z])[).]', paragrafo)
     if match_alinea:
         referencia.append(f"alínea {match_alinea.group(1)})")
 
@@ -86,36 +86,43 @@ def extrair_referencia(paragrafo):
         referencia.append(f"Item {match_decimal.group(1)}")
 
     return ' | '.join(dict.fromkeys(referencia))  # remove duplicatas mantendo ordem
+
 def extrair_chunks_com_referencias(texto):
-    """Divide texto em chunks por parágrafo e extrai referência de cada um."""
-    linhas = texto.split('\n')
-    paragrafos = []
-    buffer = ""
+    """Divide o texto por marcadores legais (Art., §, I., a), etc.) e associa cada trecho à sua referência."""
+    pattern = re.compile(r'''
+        (?=
+            \s*
+            (?:Cap[ií]tulo\s+\w+|
+            Art(?:igo)?\.?\s*\d+[º°o]?|
+            §+\s*\d+[º°o]?|
+            Par[aá]grafo\s+(?:[Uu]nico|primeiro|segundo|terceiro)|
+            \d{2,3}\.\d+|
+            [IVXLCDM]+[).]|
+            [a-zA-Z][).])
+        )
+    ''', re.VERBOSE)
 
-    for linha in linhas:
-        linha = linha.strip()
-        if linha == "":
-            if buffer:
-                paragrafos.append(buffer.strip())
-                buffer = ""
-        else:
-            buffer += " " + linha
-    if buffer:
-        paragrafos.append(buffer.strip())
-
+    partes = re.split(pattern, texto)
     chunks = []
-    for p in paragrafos:
-        p_limpo = limpar_texto(p)
-        if not p_limpo:
+
+    for i in range(1, len(partes), 2):
+        marcador = partes[i].strip()
+        conteudo = partes[i + 1].strip() if i + 1 < len(partes) else ""
+        paragrafo = f"{marcador} {conteudo}".strip()
+        paragrafo_limpo = limpar_texto(paragrafo)
+
+        if not paragrafo_limpo:
             continue
-        ref = extrair_referencia(p_limpo)
-        chunk_text = f"{ref}: {p_limpo}" if ref else p_limpo
+
+        referencia = extrair_referencia(paragrafo_limpo)
+
         chunks.append({
-            "texto": chunk_text,
-            "referencia": ref
+            "texto": f"{referencia}: {paragrafo_limpo}" if referencia else paragrafo_limpo,
+            "referencia": referencia
         })
 
     return chunks
+
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
@@ -139,6 +146,7 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
             print(f"✅ Chunk {i+1} inserido com sucesso!")
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
+
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -150,14 +158,15 @@ def vectorize_pdf(file_url, condominio_id):
 
     all_chunks = []
     for page_number, page_text in pages:
-        print(f"✂️ Página {page_number}: extraindo parágrafos...")
+        print(f"✂️ Página {page_number}: extraindo por marcadores...")
         chunks = extrair_chunks_com_referencias(page_text)
-        print(f"🔎 Parágrafos detectados: {len(chunks)}")
+        print(f"🔎 Chunks detectados: {len(chunks)}")
 
         for chunk_obj in chunks:
             chunk_text = chunk_obj["texto"]
             referencia = chunk_obj["referencia"]
             chunk_hash = generate_chunk_hash(chunk_text)
+
             try:
                 embedding = get_embedding(chunk_text)
             except Exception as e:
@@ -176,6 +185,7 @@ def vectorize_pdf(file_url, condominio_id):
             })
             time.sleep(0.5)
     return all_chunks
+
 @app.get("/")
 def home():
     return {"message": "FastAPI está funcionando!"}
