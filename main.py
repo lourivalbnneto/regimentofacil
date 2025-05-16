@@ -240,3 +240,4 @@ if __name__ == "__main__":
     else:
         print("\n❌ Há problemas com alguns serviços. Verifique os erros acima.")
         sys.exit(1)
+        
