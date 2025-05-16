@@ -7,7 +7,6 @@ import openai
 import time
 import hashlib
 import pdfplumber
-import nltk
 import re
 from supabase import create_client, Client
 from io import BytesIO
@@ -43,15 +42,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-try:
-    nltk.data.find("tokenizers/punkt")
-except LookupError:
-    nltk.download("punkt")
-
 def limpar_texto(texto):
-    texto = texto.replace('\n', ' ').replace('\r', ' ')
-    return ' '.join(texto.split())
+    texto = texto.replace('\r', ' ').replace('\n', ' ')
+    return ' '.join(texto.strip().split())
 
 def extract_text_from_pdf(file_url):
     all_text = []
@@ -69,29 +62,60 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def extrair_referencia(paragrafo):
-    """Extrai a referência mais relevante de um parágrafo."""
-    paragrafo = paragrafo.strip()
-    referencias = []
+    """Extrai a principal referência do parágrafo, se houver."""
+    referencia = []
 
-    match_artigo = re.search(r'(Art(?:igo)?\.?\s*\d+[ºo]?)', paragrafo, re.IGNORECASE)
+    match_artigo = re.search(r'\b(Art(?:igo)?\.?\s*\d+[º°o]?)', paragrafo, re.IGNORECASE)
     if match_artigo:
-        referencias.append(match_artigo.group(1).strip())
+        referencia.append(match_artigo.group(1).strip())
 
-    match_inciso = re.search(r'\b([IVXLCDM]{1,5})[.)]\s', paragrafo)
+    match_paragrafo = re.search(r'\b(§\s*\d+[º°o]?|Parágrafo(?:\s+único|\s+primeiro|s*segundo|s*terceiro)?)', paragrafo, re.IGNORECASE)
+    if match_paragrafo:
+        referencia.append(match_paragrafo.group(1).strip())
+
+    match_inciso = re.search(r'\b([IVXLCDM]+)[.)-]', paragrafo)
     if match_inciso:
-        referencias.append(f"Inciso {match_inciso.group(1)}")
+        referencia.append(f"Inciso {match_inciso.group(1)}")
 
-    match_alinea = re.search(r'\b([a-z]{1})[)]\s', paragrafo)
+    match_alinea = re.search(r'\b([a-zA-Z])[.)-]', paragrafo)
     if match_alinea:
-        referencias.append(f"alínea {match_alinea.group(1)})")
+        referencia.append(f"alínea {match_alinea.group(1)})")
 
-    return " | ".join(referencias) if referencias else ""
+    match_decimal = re.search(r'\b(\d{2,3}\.\d+)', paragrafo)
+    if match_decimal:
+        referencia.append(f"Item {match_decimal.group(1)}")
 
-def split_em_paragrafos(texto):
-    """Divide o texto em parágrafos usando pontuação e/ou quebras de linha."""
-    blocos = re.split(r'(?:\n\s*\n+|(?<=[.!?])\s{2,})', texto)
-    return [limpar_texto(bloco) for bloco in blocos if limpar_texto(bloco)]
+    return ' | '.join(dict.fromkeys(referencia))  # remove duplicatas mantendo ordem
+def extrair_chunks_com_referencias(texto):
+    """Divide texto em chunks por parágrafo e extrai referência de cada um."""
+    linhas = texto.split('\n')
+    paragrafos = []
+    buffer = ""
 
+    for linha in linhas:
+        linha = linha.strip()
+        if linha == "":
+            if buffer:
+                paragrafos.append(buffer.strip())
+                buffer = ""
+        else:
+            buffer += " " + linha
+    if buffer:
+        paragrafos.append(buffer.strip())
+
+    chunks = []
+    for p in paragrafos:
+        p_limpo = limpar_texto(p)
+        if not p_limpo:
+            continue
+        ref = extrair_referencia(p_limpo)
+        chunk_text = f"{ref}: {p_limpo}" if ref else p_limpo
+        chunks.append({
+            "texto": chunk_text,
+            "referencia": ref
+        })
+
+    return chunks
 def get_embedding(text, model="text-embedding-3-small"):
     if not text.strip():
         raise ValueError("Texto do chunk está vazio!")
@@ -115,7 +139,6 @@ def insert_embeddings_to_supabase(chunks_with_metadata):
             print(f"✅ Chunk {i+1} inserido com sucesso!")
         else:
             print(f"❌ Erro ao inserir chunk {i+1}. Detalhes: {response}")
-
 def vectorize_pdf(file_url, condominio_id):
     nome_documento = os.path.basename(file_url)
     origem = "upload_local"
@@ -127,17 +150,16 @@ def vectorize_pdf(file_url, condominio_id):
 
     all_chunks = []
     for page_number, page_text in pages:
-        print(f"✂️ Página {page_number}: separando por parágrafos...")
-        paragrafos = split_em_paragrafos(page_text)
-        print(f"🔎 Parágrafos detectados: {len(paragrafos)}")
+        print(f"✂️ Página {page_number}: extraindo parágrafos...")
+        chunks = extrair_chunks_com_referencias(page_text)
+        print(f"🔎 Parágrafos detectados: {len(chunks)}")
 
-        for paragrafo in paragrafos:
-            referencia = extrair_referencia(paragrafo)
-            texto_completo = f"{referencia}: {paragrafo}" if referencia else paragrafo
-            chunk_hash = generate_chunk_hash(texto_completo)
-
+        for chunk_obj in chunks:
+            chunk_text = chunk_obj["texto"]
+            referencia = chunk_obj["referencia"]
+            chunk_hash = generate_chunk_hash(chunk_text)
             try:
-                embedding = get_embedding(texto_completo)
+                embedding = get_embedding(chunk_text)
             except Exception as e:
                 print(f"❌ Erro ao gerar embedding: {e}")
                 embedding = None
@@ -147,44 +169,13 @@ def vectorize_pdf(file_url, condominio_id):
                 "nome_documento": nome_documento,
                 "origem": origem,
                 "pagina": page_number,
-                "chunk_text": texto_completo,
+                "chunk_text": chunk_text,
                 "chunk_hash": chunk_hash,
                 "embedding": embedding,
                 "referencia_detectada": referencia
             })
             time.sleep(0.5)
     return all_chunks
-
-def check_openai():
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        print("❌ OPENAI_API_KEY não encontrada no arquivo .env")
-        return False
-    try:
-        openai.api_key = api_key
-        response = openai.embeddings.create(model="text-embedding-3-small", input="Teste de conexão")
-        print("✅ Conexão com a OpenAI estabelecida com sucesso!")
-        return True
-    except Exception as e:
-        print(f"❌ Erro na conexão com a OpenAI: {str(e)}")
-        return False
-
-def check_supabase():
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
-    if not url or not key:
-        print("❌ SUPABASE_URL ou SUPABASE_KEY não encontradas no arquivo .env")
-        return False
-    try:
-        supabase = create_client(url, key)
-        response = supabase.table("pdf_embeddings_textos").select("count", count="exact").limit(1).execute()
-        count = response.count
-        print(f"✅ Conexão com o Supabase estabelecida com sucesso! ({count} registros na tabela)")
-        return True
-    except Exception as e:
-        print(f"❌ Erro na conexão com o Supabase: {str(e)}")
-        return False
-
 @app.get("/")
 def home():
     return {"message": "FastAPI está funcionando!"}
@@ -232,24 +223,10 @@ async def vetorizar_pdf(item: Item):
         else:
             logger.warning("Nenhum dado foi vetorizado")
             return {"error": "Nenhum dado foi extraído do PDF."}, 400
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Erro ao baixar o PDF: {str(e)}")
-        return {"error": f"Erro ao baixar o PDF: {str(e)}"}, 500
-    except openai.OpenAIError as e:
-        logger.error(f"Erro na API da OpenAI: {str(e)}")
-        return {"error": f"Erro na API da OpenAI: {str(e)}"}, 500
     except Exception as e:
         logger.exception(f"Erro não esperado: {str(e)}")
         return {"error": f"Erro interno: {str(e)}"}, 500
 
 if __name__ == "__main__":
     print("🔍 Verificando conexões com serviços externos...")
-    openai_ok = check_openai()
-    supabase_ok = check_supabase()
-
-    if openai_ok and supabase_ok:
-        print("\n✅ Todos os serviços estão funcionando corretamente!")
-        sys.exit(0)
-    else:
-        print("\n❌ Há problemas com alguns serviços. Verifique os erros acima.")
-        sys.exit(1)
+    sys.exit(0)
