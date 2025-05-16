@@ -69,15 +69,22 @@ def extract_text_from_pdf(file_url):
     return all_text
 
 def split_by_articles(text):
-    pattern = r'(Art(?:igo)?\.?\s*\d+[\u00ba\u00b0o]?)'
-    split_parts = re.split(pattern, text)
+    pattern_artigo = r'(Art(?:igo)?\.?\s*\d+[\u00ba\u00b0o]?)'
+    split_parts = re.split(pattern_artigo, text)
     articles = []
+
     for i in range(1, len(split_parts), 2):
         artigo_numero = split_parts[i].strip()
         artigo_texto = split_parts[i + 1].strip() if i + 1 < len(split_parts) else ''
         full_artigo = f"{artigo_numero} {artigo_texto}"
-        sub_chunks = re.split(r'(?<=\.)\s+(?=[IVXLCDMivxlcdm]{1,5}[).])', full_artigo)
-        articles.extend([limpar_texto(chunk) for chunk in sub_chunks if chunk.strip()])
+
+        sub_chunks = re.split(r'(?=(?:[IVXLCDM]{1,4}\.|[a-z]\)|\d+\.)\s)', full_artigo)
+
+        for chunk in sub_chunks:
+            clean = limpar_texto(chunk)
+            if clean:
+                articles.append(clean)
+
     return articles
 
 def get_embedding(text, model="text-embedding-3-small"):
@@ -117,7 +124,7 @@ def vectorize_pdf(file_url, condominio_id):
     for page_number, page_text in pages:
         print(f"✂️ Página {page_number}: dividindo por artigos...")
         articles = split_by_articles(page_text)
-        print(f"🔎 Artigos detectados: {len(articles)}")
+        print(f"🔎 Artigos e subartigos detectados: {len(articles)}")
 
         for article in articles:
             chunk = limpar_texto(article.strip())
@@ -240,4 +247,3 @@ if __name__ == "__main__":
     else:
         print("\n❌ Há problemas com alguns serviços. Verifique os erros acima.")
         sys.exit(1)
-        
