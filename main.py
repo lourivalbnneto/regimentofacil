@@ -69,7 +69,7 @@ def extrair_referencia(paragrafo):
     if match_artigo:
         referencia.append(match_artigo.group(1).strip())
 
-    match_paragrafo = re.search(r'\b(§\s*\d+[º°o]?|Parágrafo(?:\s+único|\s+primeiro|s*segundo|s*terceiro)?)', paragrafo, re.IGNORECASE)
+    match_paragrafo = re.search(r'\b(§\s*\d+[º°o]?|Parágrafo(?:\s+único|\s+primeiro|segundo|terceiro)?)', paragrafo, re.IGNORECASE)
     if match_paragrafo:
         referencia.append(match_paragrafo.group(1).strip())
 
@@ -88,6 +88,7 @@ def extrair_referencia(paragrafo):
     return ' | '.join(dict.fromkeys(referencia))  # remove duplicatas mantendo ordem
 
 def extrair_chunks_com_referencias(texto):
+    # Regex geral para marcadores
     pattern = re.compile(r'''
         (?=
             \s*
@@ -101,23 +102,19 @@ def extrair_chunks_com_referencias(texto):
         )
     ''', re.VERBOSE)
 
-    partes = re.split(pattern, texto)
     blocos = []
+    matches = list(re.finditer(pattern, texto))
 
-    for i in range(1, len(partes), 2):
-        marcador = partes[i].strip()
-        conteudo = partes[i + 1].strip() if i + 1 < len(partes) else ""
-
-        texto_chunk = f"{marcador} {conteudo}".strip()
-        texto_limpo = limpar_texto(texto_chunk)
-
-        if len(texto_limpo) < 15:
-            continue  # ignora pedaços curtos e soltos como "l." ou "m."
-
-        referencia = extrair_referencia(texto_limpo)
-
+    for i in range(len(matches)):
+        start = matches[i].start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(texto)
+        trecho = texto[start:end].strip()
+        trecho_limpo = limpar_texto(trecho)
+        if len(trecho_limpo) < 15:
+            continue
+        referencia = extrair_referencia(trecho_limpo)
         blocos.append({
-            "texto": f"{referencia}: {texto_limpo}" if referencia else texto_limpo,
+            "texto": f"{referencia}: {trecho_limpo}" if referencia else trecho_limpo,
             "referencia": referencia
         })
 
