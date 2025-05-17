@@ -314,7 +314,7 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
     all_chunks = []
     for page_number, page_text in pages:
         logger.info(f"vectorize_pdf: Página {page_number}: extraindo por marcadores...")
-        chunks = split_text_into_chunks(page_text, page_number)  # Chamada inicial para chunking recursivo
+        chunks = split_text_into_chunks(page_text, page_number) # Chamada inicial para chunking recursivo
         logger.info(f"vectorize_pdf: Chunks detectados: {len(chunks)}")
 
         for chunk in chunks:
