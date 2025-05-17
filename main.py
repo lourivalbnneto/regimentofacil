@@ -34,7 +34,7 @@ class Item(BaseModel):
 
 # Configuração de Logs
 logging.basicConfig(
-    level=logging.DEBUG, # Alterado para DEBUG para mais detalhes
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -54,10 +54,10 @@ supabase: Client = create_client(supabase_url, supabase_key)
 # Funções Utilitárias
 def sanitize_text(text: str) -> str:
     """Limpa o texto removendo caracteres de nova linha e espaços extras."""
-    logger.debug(f"sanitize_text: Input text - {text[:100]}") # Log do início do texto
+    logger.debug(f"sanitize_text: Input: {text[:100]}...")
     text = text.replace('\r', ' ').replace('\n', ' ')
     sanitized = ' '.join(text.strip().split())
-    logger.debug(f"sanitize_text: Sanitized text - {sanitized[:100]}") # Log do resultado
+    logger.debug(f"sanitize_text: Output: {sanitized[:100]}...")
     return sanitized
 
 
@@ -67,7 +67,7 @@ def extract_text_from_pdf(file_url: str) -> list:
     all_text = []
     try:
         response = requests.get(file_url)
-        response.raise_for_status() # Garante que a requisição foi bem-sucedida
+        response.raise_for_status()
         pdf_file = BytesIO(response.content)
         with pdfplumber.open(pdf_file) as pdf:
             for page_number, page in enumerate(pdf.pages, start=1):
@@ -95,82 +95,86 @@ def extract_text_from_pdf(file_url: str) -> list:
 
 def _process_tables(tables: List[List[List[str]]]) -> str:
     """Processa tabelas extraídas do PDF."""
-
+    logger.debug("_process_tables: Iniciando processamento de tabelas")
     table_strings = []
     for table in tables:
-       # Simplificação: concatenar células com um separador
         table_string = "\n".join([" | ".join(row) for row in table])
         table_strings.append(f"Tabela:\n{table_string}")
-    return "\n\n".join(table_strings)
+    result = "\n\n".join(table_strings)
+    logger.debug(f"_process_tables: Tabelas processadas: {result[:100]}...")
+    return result
 
 
 def extract_references(text: str) -> list:
     """Extrai referências do texto (Art., §, Inciso, alínea)."""
-    logger.debug(f"extract_references: Iniciando extração de referências em: {text[:100]}") # Log do início do texto
+    logger.debug(f"extract_references: Iniciando extração de referências em: {text[:100]}...")
     references = []
 
-   # Regex para Artigo (Art. 1º, Art. 1, Artigo 1)
+    # Regex para Artigo (Art. 1º, Art. 1, Artigo 1)
     match = re.search(r'\b(Art(?:igo)?\.?\s*\d+[º°]?)', text, re.IGNORECASE)
     if match:
         references.append(match.group(1).strip())
         logger.debug(f"extract_references: Artigo encontrado: {match.group(1)}")
 
-   # Regex para Parágrafo (§ 1º, Parágrafo único)
+    # Regex para Parágrafo (§ 1º, Parágrafo único)
     match = re.search(r'\b(§\s*\d+[º°]?|Parágrafo(?:\s+único|\s+primeiro|segundo|terceiro)?)', text, re.IGNORECASE)
     if match:
         references.append(match.group(1).strip())
         logger.debug(f"extract_references: Parágrafo encontrado: {match.group(1)}")
 
-   # Regex para Inciso (I, II, III...)
+    # Regex para Inciso (I, II, III...)
     match = re.search(r'\b([IVXLCDM]+)[).]', text)
     if match:
         references.append(f"Inciso {match.group(1)}")
         logger.debug(f"extract_references: Inciso encontrado: {match.group(1)}")
 
-   # Regex para Alínea (a, b, c...)
+    # Regex para Alínea (a, b, c...)
     match = re.search(r'\b([a-z])[).]', text)
     if match:
         references.append(f"Alínea {match.group(1)}")
         logger.debug(f"extract_references: Alínea encontrada: {match.group(1)}")
 
-    unique_references = list(dict.fromkeys(references)) # Remove duplicatas mantendo a ordem
+    unique_references = list(dict.fromkeys(references))
     logger.debug(f"extract_references: Referências extraídas: {unique_references}")
     return unique_references
 
 
 def split_text_into_chunks(text: str, page_number: int, parent_metadata: Dict = None) -> list:
     """Divide recursivamente o texto em chunks menores, identificando seções por marcadores."""
-
-    logger.debug(f"split_text_into_chunks: Iniciando divisão de texto em chunks: {text[:100]}") # Log do início do texto
+    logger.debug(f"split_text_into_chunks: Iniciando divisão de texto em chunks: {text[:100]}...")
 
     chunks = []
     if parent_metadata is None:
         parent_metadata = {}
 
-   # 1. Chunking Semântico (Títulos)
+    # 1. Chunking Semântico (Títulos)
     title_chunks = _chunk_by_titles_recursive(text, page_number, parent_metadata)
     if title_chunks:
-        return title_chunks # Retorna se títulos forem encontrados
+        chunks.extend(title_chunks)
+        return chunks
 
-   # 2. Chunking por Parágrafos
+    # 2. Chunking por Parágrafos
     para_chunks = _chunk_by_paragraphs(text, page_number, parent_metadata)
     if para_chunks:
-        return para_chunks
+        chunks.extend(para_chunks)
+        return chunks
 
-   # 3. Chunking por Frases
+    # 3. Chunking por Frases
     sentence_chunks = _chunk_by_sentences(text, page_number, parent_metadata)
-    return sentence_chunks
+    chunks.extend(sentence_chunks)
+    return chunks
 
 
 def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
     """Divide o texto recursivamente usando títulos e cabeçalhos como delimitadores."""
-
+    logger.debug(f"_chunk_by_titles_recursive: Iniciando divisão por títulos em: {text[:100]}...")
     title_pattern = re.compile(
         r'(\b(?:CAPÍTULO|SEÇÃO|Art\.\s*\d+|[A-Z][a-z]+\s+\d+)\b.*?)(?=\b(?:CAPÍTULO|SEÇÃO|Art\.\s*\d+|[A-Z][a-z]+\s+\d+)\b|$)',
         re.IGNORECASE | re.DOTALL
     )
     matches = list(title_pattern.finditer(text))
     if not matches:
+        logger.debug("_chunk_by_titles_recursive: Nenhum título encontrado.")
         return []
 
     chunks = []
@@ -180,33 +184,36 @@ def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dic
         chunk_text = text[start:end].strip()
         title = matches[i].group(1).strip()
         current_metadata = {"type": "title", "title": title}
-        current_metadata.update(parent_metadata) # Herda metadados
+        current_metadata.update(parent_metadata)
 
         if len(chunk_text) > 300:
-           # Recursão!
             sub_chunks = split_text_into_chunks(chunk_text, page_number, current_metadata)
             chunks.extend(sub_chunks)
-        elif len(chunk_text) > 50:
+            logger.debug(f"_chunk_by_titles_recursive: Chunk recursivo criado com título: {title}")
+        elif 50 < len(chunk_text):
             chunks.append({
                 "page": page_number,
                 "text": chunk_text,
                 "metadata": current_metadata
             })
+            logger.debug(f"_chunk_by_titles_recursive: Chunk criado com título: {title}")
+    logger.debug(f"_chunk_by_titles_recursive: Total de chunks criados: {len(chunks)}")
     return chunks
 
 
 def _chunk_by_paragraphs(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
     """Divide o texto usando parágrafos como delimitadores."""
-
+    logger.debug(f"_chunk_by_paragraphs: Iniciando divisão por parágrafos em: {text[:100]}...")
     para_pattern = re.compile(r'(.+?\n\n)', re.DOTALL)
     matches = list(para_pattern.finditer(text))
     if not matches:
+        logger.debug("_chunk_by_paragraphs: Nenhum parágrafo encontrado.")
         return []
 
     chunks = []
     for match in matches:
         chunk_text = match.group(1).strip()
-        if 50 < len(chunk_text) < 500: # Limites de tamanho
+        if 50 < len(chunk_text) < 500:
             current_metadata = {"type": "paragraph"}
             current_metadata.update(parent_metadata)
             chunks.append({
@@ -214,17 +221,19 @@ def _chunk_by_paragraphs(text: str, page_number: int, parent_metadata: Dict) -> 
                 "text": chunk_text,
                 "metadata": current_metadata
             })
+            logger.debug(f"_chunk_by_paragraphs: Chunk criado: {chunk_text[:100]}...")
+    logger.debug(f"_chunk_by_paragraphs: Total de chunks criados: {len(chunks)}")
     return chunks
 
 
 def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
     """Divide o texto em frases, garantindo que os chunks não excedam um tamanho máximo."""
-
+    logger.debug(f"_chunk_by_sentences: Iniciando divisão por frases em: {text[:100]}...")
     sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\!|\?)\s', text)
     chunks = []
     current_chunk = ""
     for sentence in sentences:
-        if len(current_chunk) + len(sentence) < 300: # Limite de tamanho
+        if len(current_chunk) + len(sentence) < 300:
             current_chunk += sentence + " "
         else:
             if current_chunk:
@@ -235,6 +244,7 @@ def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> L
                     "text": current_chunk.strip(),
                     "metadata": current_metadata
                 })
+                logger.debug(f"_chunk_by_sentences: Chunk criado: {current_chunk[:100]}...")
             current_chunk = sentence + " "
     if current_chunk:
         current_metadata = {"type": "sentence"}
@@ -244,26 +254,26 @@ def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> L
             "text": current_chunk.strip(),
             "metadata": current_metadata
         })
+        logger.debug(f"_chunk_by_sentences: Último chunk criado: {current_chunk[:100]}...")
+    logger.debug(f"_chunk_by_sentences: Total de chunks criados: {len(chunks)}")
     return chunks
 
 
 def get_embedding(text: str, model: str = "text-embedding-3-small") -> list:
     """Gera o embedding para o texto usando o modelo da OpenAI."""
-    logger.debug(f"get_embedding: Obtendo embedding para: {text[:100]}") # Log do início do texto
-
+    logger.debug(f"get_embedding: Obtendo embedding para: {text[:100]}...")
     if not text.strip():
         logger.error("get_embedding: Texto do chunk está vazio!")
         raise ValueError("Texto do chunk está vazio!")
     response = openai.embeddings.create(model=model, input=text)
     embedding = response.data[0].embedding
-    logger.debug(f"get_embedding: Embedding obtido: {embedding[:10]}") # Log dos primeiros valores
+    logger.debug(f"get_embedding: Embedding obtido: {embedding[:10]}...")
     return embedding
 
 
 def generate_chunk_hash(chunk_text: str) -> str:
     """Gera um hash para o texto do chunk."""
-    logger.debug(f"generate_chunk_hash: Gerando hash para: {chunk_text[:100]}") # Log do início do texto
-
+    logger.debug(f"generate_chunk_hash: Gerando hash para: {chunk_text[:100]}...")
     chunk_hash = hashlib.sha256(chunk_text.encode()).hexdigest()
     logger.debug(f"generate_chunk_hash: Hash gerado: {chunk_hash}")
     return chunk_hash
@@ -272,7 +282,6 @@ def generate_chunk_hash(chunk_text: str) -> str:
 def check_chunk_exists(chunk_hash: str) -> bool:
     """Verifica se um chunk com o hash especificado já existe no banco de dados."""
     logger.debug(f"check_chunk_exists: Verificando existência do chunk com hash: {chunk_hash}")
-
     response = supabase.table("pdf_embeddings_textos").select("id").eq("chunk_hash", chunk_hash).execute()
     exists = bool(response.data)
     logger.debug(f"check_chunk_exists: Chunk existe: {exists}")
@@ -289,6 +298,7 @@ def insert_embeddings_to_supabase(chunks_with_metadata: list) -> None:
             continue
 
         try:
+            logger.debug(f"insert_embeddings_to_supabase: Dados para inserção: {item}")
             response = supabase.table("pdf_embeddings_textos").insert(item).execute()
             if response.data:
                 logger.info(f"insert_embeddings_to_supabase: Chunk {i + 1} inserido com sucesso!")
@@ -314,12 +324,12 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
     all_chunks = []
     for page_number, page_text in pages:
         logger.info(f"vectorize_pdf: Página {page_number}: extraindo por marcadores...")
-        chunks = split_text_into_chunks(page_text, page_number) # Chamada inicial para chunking recursivo
+        chunks = split_text_into_chunks(page_text, page_number)
         logger.info(f"vectorize_pdf: Chunks detectados: {len(chunks)}")
 
         for chunk in chunks:
             chunk_text = chunk["text"]
-            references = chunk.get("references", []) # Usar get() para evitar erro se "references" não existir
+            references = chunk.get("references", [])
             chunk_hash = generate_chunk_hash(chunk_text)
 
             try:
@@ -332,13 +342,13 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
                 "condominio_id": condominio_id,
                 "nome_documento": nome_documento,
                 "origem": origem,
-                "pagina": chunk.get("page", page_number), # Usar get() para segurança
+                "pagina": chunk.get("page", page_number),
                 "chunk_text": chunk_text,
                 "chunk_hash": chunk_hash,
                 "embedding": embedding,
                 "referencia_detectada": " | ".join(references)
             })
-        time.sleep(0.5) # Adiciona um pequeno delay entre o processamento de cada página
+        time.sleep(0.5)
     logger.info(f"vectorize_pdf: Vetorização concluída. Total de chunks: {len(all_chunks)}")
     return all_chunks
 
@@ -364,7 +374,7 @@ async def vetorizar_pdf(item: Item):
     nome_documento = os.path.basename(file_url)
 
     try:
-       # Verifica se já existe um registro para este condomínio e documento
+        # Verifica se já existe um registro para este condomínio e documento
         verifica = supabase.table("pdf_artigos_extraidos").select("id").eq("condominio_id", condominio_id).eq(
             "nome_documento", nome_documento).execute()
         if not verifica.data:
@@ -375,7 +385,7 @@ async def vetorizar_pdf(item: Item):
                 "status": "pendente"
             }).execute()
 
-       # Deleta os registros existentes para este condomínio e documento
+        # Deleta os registros existentes para este condomínio e documento
         supabase.table("pdf_embeddings_textos").delete().eq("condominio_id", condominio_id).eq(
             "nome_documento", nome_documento).execute()
 
@@ -386,7 +396,7 @@ async def vetorizar_pdf(item: Item):
             logger.info(f"vetorizar_pdf: Inserindo {len(vectorized_data)} chunks no Supabase")
             insert_embeddings_to_supabase(vectorized_data)
 
-           # Atualiza o status do processamento
+            # Atualiza o status do processamento
             supabase.table("pdf_artigos_extraidos").update({
                 "vetorizado": True,
                 "vetorizado_em": datetime.utcnow().isoformat(),
@@ -408,5 +418,5 @@ async def vetorizar_pdf(item: Item):
 
 if __name__ == "__main__":
     print("Verificando conexões com serviços externos...")
-   # Você pode adicionar aqui verificações para Supabase e OpenAI
-   # e usar sys.exit(0) em caso de falha
+    # Você pode adicionar aqui verificações para Supabase e OpenAI
+    # e usar sys.exit(0) em caso de falha
