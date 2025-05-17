@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 import logging
 from datetime import datetime
+from typing import List, Dict, Tuple
 
 # Configuração do FastAPI
 app = FastAPI(root_path=os.getenv("ROOT_PATH", ""))
@@ -70,7 +71,12 @@ def extract_text_from_pdf(file_url: str) -> list:
         pdf_file = BytesIO(response.content)
         with pdfplumber.open(pdf_file) as pdf:
             for page_number, page in enumerate(pdf.pages, start=1):
-                text = page.extract_text()
+                tables = page.extract_tables()
+                if tables:
+                    table_text = _process_tables(tables)
+                    all_text.append((page_number, table_text))
+                    logger.debug(f"extract_text_from_pdf: Tabela extraída da página {page_number}")
+                text = page.extract_text(x_tolerance=2, y_tolerance=2)
                 if text:
                     sanitized_text = sanitize_text(text)
                     all_text.append((page_number, sanitized_text))
@@ -85,6 +91,17 @@ def extract_text_from_pdf(file_url: str) -> list:
     except pdfplumber.PDFOpeningError as e:
         logger.error(f"extract_text_from_pdf: Erro ao abrir o PDF: {e}")
         raise Exception(f"Erro ao abrir o PDF: {e}")
+
+
+def _process_tables(tables: List[List[List[str]]]) -> str:
+    """Processa tabelas extraídas do PDF."""
+
+    table_strings = []
+    for table in tables:
+        # Simplificação: concatenar células com um separador
+        table_string = "\n".join([" | ".join(row) for row in table])
+        table_strings.append(f"Tabela:\n{table_string}")
+    return "\n\n".join(table_strings)
 
 
 def extract_references(text: str) -> list:
@@ -121,43 +138,112 @@ def extract_references(text: str) -> list:
     return unique_references
 
 
-def split_text_into_chunks(text: str) -> list:
-    """Divide o texto em chunks menores, identificando seções por marcadores."""
+def split_text_into_chunks(text: str, page_number: int, parent_metadata: Dict = None) -> list:
+    """Divide recursivamente o texto em chunks menores, identificando seções por marcadores."""
+
     logger.debug(f"split_text_into_chunks: Iniciando divisão de texto em chunks: {text[:100]}")  # Log do início do texto
 
-    # Regex simplificada para marcadores (Art., §, Inciso, Alínea)
-    pattern = re.compile(r'''
-        (?=
-            \s*
-            (?:
-                Art(?:igo)?\.?\s*\d+[º°]?|
-                §+\s*\d+[º°]?|
-                Parágrafo(?:\s+único|\s+primeiro|segundo|terceiro)|
-                [IVXLCDM]+[).]|
-                [a-z][).])
-        )
-    ''', re.VERBOSE | re.IGNORECASE)
+    chunks = []
+    if parent_metadata is None:
+        parent_metadata = {}
+
+    # 1. Chunking Semântico (Títulos)
+    title_chunks = _chunk_by_titles_recursive(text, page_number, parent_metadata)
+    if title_chunks:
+        return title_chunks  # Retorna se títulos forem encontrados
+
+    # 2. Chunking por Parágrafos
+    para_chunks = _chunk_by_paragraphs(text, page_number, parent_metadata)
+    if para_chunks:
+        return para_chunks
+
+    # 3. Chunking por Frases
+    sentence_chunks = _chunk_by_sentences(text, page_number, parent_metadata)
+    return sentence_chunks
+
+
+def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
+    """Divide o texto recursivamente usando títulos e cabeçalhos como delimitadores."""
+
+    title_pattern = re.compile(
+        r'(\b(?:CAPÍTULO|SEÇÃO|Art\.\s*\d+|[A-Z][a-z]+\s+\d+)\b.*?)(?=\b(?:CAPÍTULO|SEÇÃO|Art\.\s*\d+|[A-Z][a-z]+\s+\d+)\b|$)',
+        re.IGNORECASE | re.DOTALL
+    )
+    matches = list(title_pattern.finditer(text))
+    if not matches:
+        return []
 
     chunks = []
-    matches = list(pattern.finditer(text))
-
     for i in range(len(matches)):
         start = matches[i].start()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chunk_text = text[start:end].strip()
-        chunk_text = sanitize_text(chunk_text)
+        title = matches[i].group(1).strip()
+        current_metadata = {"type": "title", "title": title}
+        current_metadata.update(parent_metadata)  # Herda metadados
 
-        if len(chunk_text) < 15:
-            continue
+        if len(chunk_text) > 300:
+            # Recursão!
+            sub_chunks = split_text_into_chunks(chunk_text, page_number, current_metadata)
+            chunks.extend(sub_chunks)
+        elif len(chunk_text) > 50:
+            chunks.append({
+                "page": page_number,
+                "text": chunk_text,
+                "metadata": current_metadata
+            })
+    return chunks
 
-        references = extract_references(chunk_text)
+
+def _chunk_by_paragraphs(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
+    """Divide o texto usando parágrafos como delimitadores."""
+
+    para_pattern = re.compile(r'(.+?\n\n)', re.DOTALL)
+    matches = list(para_pattern.finditer(text))
+    if not matches:
+        return []
+
+    chunks = []
+    for match in matches:
+        chunk_text = match.group(1).strip()
+        if 50 < len(chunk_text) < 500:  # Limites de tamanho
+            current_metadata = {"type": "paragraph"}
+            current_metadata.update(parent_metadata)
+            chunks.append({
+                "page": page_number,
+                "text": chunk_text,
+                "metadata": current_metadata
+            })
+    return chunks
+
+
+def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
+    """Divide o texto em frases, garantindo que os chunks não excedam um tamanho máximo."""
+
+    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\!|\?)\s', text)
+    chunks = []
+    current_chunk = ""
+    for sentence in sentences:
+        if len(current_chunk) + len(sentence) < 300:  # Limite de tamanho
+            current_chunk += sentence + " "
+        else:
+            if current_chunk:
+                current_metadata = {"type": "sentence"}
+                current_metadata.update(parent_metadata)
+                chunks.append({
+                    "page": page_number,
+                    "text": current_chunk.strip(),
+                    "metadata": current_metadata
+                })
+            current_chunk = sentence + " "
+    if current_chunk:
+        current_metadata = {"type": "sentence"}
+        current_metadata.update(parent_metadata)
         chunks.append({
-            "text": chunk_text,
-            "references": references
+            "page": page_number,
+            "text": current_chunk.strip(),
+            "metadata": current_metadata
         })
-        logger.debug(f"split_text_into_chunks: Chunk {i + 1} criado: {chunk_text[:100]}")
-
-    logger.info(f"split_text_into_chunks: Total de chunks criados: {len(chunks)}")
     return chunks
 
 
@@ -228,12 +314,12 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
     all_chunks = []
     for page_number, page_text in pages:
         logger.info(f"vectorize_pdf: Página {page_number}: extraindo por marcadores...")
-        chunks = split_text_into_chunks(page_text)
+        chunks = split_text_into_chunks(page_text, page_number)  # Chamada inicial para chunking recursivo
         logger.info(f"vectorize_pdf: Chunks detectados: {len(chunks)}")
 
         for chunk in chunks:
             chunk_text = chunk["text"]
-            references = chunk["references"]
+            references = chunk.get("references", []) # Usar get() para evitar erro se "references" não existir
             chunk_hash = generate_chunk_hash(chunk_text)
 
             try:
@@ -246,7 +332,7 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
                 "condominio_id": condominio_id,
                 "nome_documento": nome_documento,
                 "origem": origem,
-                "pagina": page_number,
+                "pagina": chunk.get("page", page_number), # Usar get() para segurança
                 "chunk_text": chunk_text,
                 "chunk_hash": chunk_hash,
                 "embedding": embedding,
