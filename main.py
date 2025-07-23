@@ -75,14 +75,8 @@ def extract_text_from_pdf(file_url: str) -> list:
     except Exception as e:
         raise Exception(f"Erro ao processar o PDF: {e}")
 
-def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
-    title_pattern = re.compile(
-        r'(?:(CAP[IÍ]TULO\s+[IVXLCDM]+)|(SE[CÇ][AÃ]O\s+[A-Z]+)|(Art\.\s*\d+[º°]?))\s*(.*?)(?=\n|$)',
-        re.IGNORECASE
-    )
-    matches = list(title_pattern.finditer(text))
-    if not matches:
-        return []
+def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dict, depth: int) -> List[Dict]:
+    # ... regex igual ...
     chunks = []
     for i in range(len(matches)):
         start = matches[i].start()
@@ -91,8 +85,9 @@ def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dic
         title = matches[i].group(0).strip()
         current_metadata = {"type": "title", "title": title}
         current_metadata.update(parent_metadata)
-        if len(chunk_text) > 300:
-            sub_chunks = split_text_into_chunks(chunk_text, page_number, current_metadata)
+
+        if len(chunk_text) > 300 and depth < 2:
+            sub_chunks = split_text_into_chunks(chunk_text, page_number, current_metadata, depth=depth+1)
             chunks.extend(sub_chunks)
         elif is_valid_chunk(chunk_text):
             chunks.append({
@@ -147,18 +142,24 @@ def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> L
             })
     return chunks
 
-def split_text_into_chunks(text: str, page_number: int, parent_metadata: Dict = None) -> list:
+def split_text_into_chunks(text: str, page_number: int, parent_metadata: Dict = None, depth: int = 0) -> list:
+    if depth > 2:
+        return []  # impede recursão infinita
+
     chunks = []
     if parent_metadata is None:
         parent_metadata = {}
-    title_chunks = _chunk_by_titles_recursive(text, page_number, parent_metadata)
+
+    title_chunks = _chunk_by_titles_recursive(text, page_number, parent_metadata, depth=depth+1)
     if title_chunks:
         chunks.extend(title_chunks)
         return chunks
+
     para_chunks = _chunk_by_paragraphs(text, page_number, parent_metadata)
     if para_chunks:
         chunks.extend(para_chunks)
         return chunks
+
     sentence_chunks = _chunk_by_sentences(text, page_number, parent_metadata)
     chunks.extend(sentence_chunks)
     return chunks
