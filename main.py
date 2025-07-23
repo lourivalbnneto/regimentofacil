@@ -1,43 +1,65 @@
 import os
 import logging
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from utils_pdf import extract_and_chunk_pdf
+
+from utils_pdf import processar_pdf_url
 from utils_db import salvar_chunks_no_supabase
 from utils_openai import gerar_embeddings_para_chunks
 
-app = FastAPI()
-
+# Configurar logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
-class VetorizacaoRequest(BaseModel):
+# Inicializar FastAPI
+app = FastAPI()
+
+# Habilitar CORS (inclusive para FlutterFlow)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Pode ser substituído por seu domínio específico
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Modelo de entrada
+class VetorizarRequest(BaseModel):
     url_pdf: str
     id_condominio: str
     id_usuario: str
+    origem: str = "upload"
 
 @app.post("/vetorizar")
-async def vetorizar(request: VetorizacaoRequest):
+async def vetorizar(request: VetorizarRequest):
     try:
         url_pdf = request.url_pdf
         condominio_id = request.id_condominio
         id_usuario = request.id_usuario
-        origem = "upload"
-        nome_documento = url_pdf.split("/")[-1]  # nome do arquivo PDF
+        origem = request.origem
 
-        logger.info(f"Iniciando vetorização: url_pdf='{url_pdf}'; id_condominio='{condominio_id}' id_usuario='{id_usuario}' origem='{origem}'")
+        logger.info(
+            f"Iniciando vetorização: url_pdf='{url_pdf}';; "
+            f"id_condominio='{condominio_id}' id_usuario='{id_usuario}' origem='{origem}'"
+        )
 
-        chunks = extract_and_chunk_pdf(url_pdf, nome_documento, condominio_id, id_usuario, origem)
+        # Extrai e processa chunks do PDF
+        chunks = processar_pdf_url(url_pdf, condominio_id, id_usuario, origem)
+
         logger.info(f"Total de chunks gerados: {len(chunks)}")
 
         if not chunks:
-            return {"success": False, "message": "Nenhum chunk gerado", "status": 204}
+            raise Exception("Nenhum chunk gerado")
 
-        chunks_com_embeddings = gerar_embeddings_para_chunks(chunks)
-        salvar_chunks_no_supabase(chunks_com_embeddings)
+        # Gerar embeddings
+        chunks = gerar_embeddings_para_chunks(chunks)
 
-        return {"success": True, "message": "Chunks vetorizados com sucesso", "status": 200, "quantidade_chunks": len(chunks)}
+        # Inserir no Supabase
+        salvar_chunks_no_supabase(chunks)
+
+        return {"success": True, "total_chunks": len(chunks)}
 
     except Exception as e:
-        logger.error(f"Erro ao vetorizar PDF: {str(e)}", exc_info=True)
-        return {"success": False, "message": str(e), "status": 500}
+        logger.error(f"Erro ao vetorizar PDF: {str(e)}")
+        return {"success": False, "error": str(e)}
