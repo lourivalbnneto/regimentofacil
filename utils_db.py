@@ -1,28 +1,28 @@
 import os
-import logging
-import requests
-
-logger = logging.getLogger("utils_db")
+import json
+from typing import List, Dict
+from supabase import create_client
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-SUPABASE_TABLE = "pdf_embeddings_textos"
 
-def salvar_chunks_no_supabase(chunks):
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        logger.error("Supabase URL ou Key não definida")
-        raise Exception("Variáveis de ambiente do Supabase não definidas")
+def supabase_client():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    url = f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-    }
+async def inserir_chunks_supabase(chunks: List[Dict]):
+    supabase = supabase_client()
+    inseridos = 0
+    erros = 0
 
     for chunk in chunks:
-        response = requests.post(url, headers=headers, json=chunk)
-        if not response.ok:
-            logger.error("Erro ao inserir chunk no Supabase: %s", response.text)
-            raise Exception(f"Erro ao inserir chunk: {response.text}")
+        try:
+            print(f"[Inserção] Tentando inserir chunk:\n{json.dumps(chunk, ensure_ascii=False)[:500]}...\n---")
+            data = supabase.table("pdf_embeddings_textos").insert(chunk).execute()
+            print(f"[Sucesso] Inserido com sucesso: {data}\n")
+            inseridos += 1
+        except Exception as e:
+            print(f"[Erro] Falha ao inserir chunk:\n{e}\nChunk problemático:\n{json.dumps(chunk, ensure_ascii=False)}\n")
+            erros += 1
+
+    print(f"[Resumo] Total de chunks inseridos com sucesso: {inseridos}")
+    print(f"[Resumo] Total de erros de inserção: {erros}")
