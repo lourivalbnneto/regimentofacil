@@ -35,7 +35,13 @@ async def vetorizar(request: Request):
         origem = body.get("origem", "upload_manual")
 
         if not url_pdf or not condominio_id or not id_usuario:
-            return {"success": False, "message": "Campos obrigatórios ausentes"}
+            return {
+                "success": False,
+                "message": "Campos obrigatórios ausentes",
+                "code": "missing_fields"
+            }
+
+        print("🚀 Iniciando extração e chunking...", flush=True)
 
         # Etapa 1: Extração + chunking
         chunks = extract_and_chunk_pdf(
@@ -46,27 +52,38 @@ async def vetorizar(request: Request):
             origem=origem
         )
 
-        if not chunks:
-            logging.warning("⚠️ Nenhum chunk foi retornado do parser PDF.")
-            return {"success": False, "message": "Nenhum chunk gerado a partir do PDF"}
+        print(f"🔍 Total de chunks extraídos: {len(chunks)}", flush=True)
 
-        print(f"🔍 Total de chunks extraídos: {len(chunks)}")
+        if not chunks:
+            return {
+                "success": False,
+                "message": "Nenhum chunk gerado a partir do PDF",
+                "code": "no_chunks"
+            }
 
         # Etapa 2: Geração de embeddings
         chunks = await gerar_embeddings_para_chunks(chunks)
 
-        print("🧠 Verificando conteúdo dos chunks:")
-        for i, c in enumerate(chunks):
-            print(f"{i+1}. Texto: {c.get('chunk_text')[:50]}... | Embedding: {'ok' if 'embedding' in c else '❌'}")
+        print("🧠 Verificando conteúdo dos chunks:", flush=True)
+        for i, c in enumerate(chunks[:3]):
+            print(f"{i+1}. Texto: {c.get('chunk_text')[:50]}... | Embedding: {'ok' if 'embedding' in c else '❌'}", flush=True)
 
         # Etapa 3: Salvar no Supabase
-        print(f"💾 Enviando {len(chunks)} chunks para o Supabase")
-
+        print(f"💾 Enviando {len(chunks)} chunks para o Supabase", flush=True)
         inseridos = salvar_chunks_no_supabase(chunks)
-        logging.info(f"✅ {inseridos} chunks inseridos no Supabase")
 
-        return {"success": True, "chunks_salvos": inseridos}
+        print(f"✅ {inseridos} chunks inseridos no Supabase", flush=True)
+
+        return {
+            "success": True,
+            "message": "Chunks vetorizados e salvos com sucesso",
+            "chunks_salvos": inseridos
+        }
 
     except Exception as e:
         logging.exception("Erro ao processar PDF")
-        return {"success": False, "message": f"Erro inesperado: {str(e)}"}
+        return {
+            "success": False,
+            "message": f"Erro inesperado: {str(e)}",
+            "code": "internal_error"
+        }
