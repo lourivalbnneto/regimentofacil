@@ -25,8 +25,8 @@ class PDFContent(BaseModel):
     pdf_text: str
 
 # Função principal de vetorização
-@app.post("/vectorize_pdf")
-async def vectorize_pdf(data: PDFContent):
+@app.post("/vetorizar")
+async def vectorizar_pdf(data: PDFContent):
     logger.info("Iniciando vetorização para condomínio: %s", data.id_condominio)
 
     try:
