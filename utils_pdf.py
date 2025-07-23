@@ -1,55 +1,98 @@
+import re
+import logging
 import requests
 from io import BytesIO
 from pdfminer.high_level import extract_text
+from nltk.tokenize import sent_tokenize
 import hashlib
-import logging
+import openai
+import os
 
 logger = logging.getLogger("utils_pdf")
 
-def extract_text_from_pdf(url):
+openai.api_key = os.getenv("OPENAI_API_KEY")
+EMBEDDING_MODEL = "text-embedding-3-small"
+
+def extract_text_from_pdf(url_pdf: str) -> str:
     try:
-        response = requests.get(url)
+        response = requests.get(url_pdf)
         response.raise_for_status()
-        texto = extract_text(BytesIO(response.content))
-        logger.info(f"Texto extraído (tamanho={len(texto)}): {texto[:200]}...")
-        return texto
+        pdf_file = BytesIO(response.content)
+        return extract_text(pdf_file)
     except Exception as e:
         logger.error(f"Erro inesperado ao extrair texto do PDF: {e}")
         return ""
 
-def sanitize_text(text):
-    return text.replace("\xa0", " ").strip()
+def sanitize_text(text: str) -> str:
+    sanitized = re.sub(r'\s+', ' ', text).strip()
+    logger.debug(f"Texto sanitizado (tamanho={len(sanitized)}): {sanitized[:100]}...")
+    return sanitized
 
-def gerar_hash(conteudo, condominio_id, id_usuario, pagina):
-    base = f"{conteudo}|{condominio_id}|{id_usuario}|{pagina}"
-    return hashlib.sha256(base.encode("utf-8")).hexdigest()
-
-def chunk_text_by_titles(texto, condominio_id, id_usuario, origem):
-    chunks = []
-
+def gerar_embedding(texto: str) -> list:
     try:
-        if "Art. " not in texto and "Artigo" not in texto:
-            logger.warning("⚠️ Nenhum artigo encontrado. Aplicando fallback por parágrafos.")
-            paragrafos = [p.strip() for p in texto.split("\n") if p.strip()]
-            for i, paragrafo in enumerate(paragrafos):
-                chunk_hash = gerar_hash(paragrafo, condominio_id, id_usuario, i)
-                chunks.append({
-                    "condominio_id": condominio_id,
-                    "id_usuario": id_usuario,
-                    "chunk_text": paragrafo,
-                    "chunk_hash": chunk_hash,
-                    "pagina": i,
-                    "origem": origem,
-                    "foi_vetorizada": False,
-                    "reusada": False,
-                    "acessos": 0,
-                })
-        else:
-            # Aqui você pode implementar chunking por artigo/subartigo futuramente
-            pass
-
+        response = openai.embeddings.create(
+            input=[texto],
+            model=EMBEDDING_MODEL,
+            dimensions=1536,
+        )
+        return response.data[0].embedding
     except Exception as e:
-        logger.error(f"Erro ao gerar chunks: {e}", exc_info=True)
+        logger.warning(f"⚠️ Erro ao gerar embedding: {e}")
+        return []
+
+def gerar_hash(texto: str) -> str:
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+
+def chunk_text_by_titles(text: str, condominio_id: str, id_usuario: str, origem: str) -> list:
+    chunks = []
+    chunk_base = {
+        "condominio_id": condominio_id,
+        "id_usuario": id_usuario,
+        "origem": origem,
+        "foi_vetorizada": True,
+        "reusada": False,
+        "acessos": 0,
+        "score_similaridade": None,
+        "qualidade": "Pendente",
+        "pagina": None,
+        "nome_documento": None,
+        "referencia_detectada": None,
+    }
+
+    padrao_artigo = re.compile(r'(Art\.?[\sº°]*\d+[^\n]*)', re.IGNORECASE)
+    partes = padrao_artigo.split(text)
+    partes = [p.strip() for p in partes if p.strip()]
+
+    if len(partes) < 2:
+        logger.warning("⚠️ Nenhum artigo encontrado. Aplicando fallback por parágrafos.")
+        paragrafos = re.split(r'(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', text)
+        for paragrafo in paragrafos:
+            chunk_text = paragrafo.strip()
+            if len(chunk_text) < 10:
+                continue
+            chunk = chunk_base.copy()
+            chunk["chunk_text"] = chunk_text
+            chunk["chunk_hash"] = gerar_hash(chunk_text)
+            chunk["embedding"] = gerar_embedding(chunk_text)
+            chunks.append(chunk)
+        logger.info(f"Total de chunks gerados: {len(chunks)}")
+        return chunks
+
+    for i in range(0, len(partes), 2):
+        if i + 1 < len(partes):
+            titulo = partes[i]
+            conteudo = partes[i + 1]
+            paragrafos = re.split(r'(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', conteudo)
+
+            for paragrafo in paragrafos:
+                chunk_text = f"{titulo.strip()} - {paragrafo.strip()}"
+                if len(chunk_text) < 10:
+                    continue
+                chunk = chunk_base.copy()
+                chunk["chunk_text"] = chunk_text
+                chunk["chunk_hash"] = gerar_hash(chunk_text)
+                chunk["embedding"] = gerar_embedding(chunk_text)
+                chunks.append(chunk)
 
     logger.info(f"Total de chunks gerados: {len(chunks)}")
     return chunks
