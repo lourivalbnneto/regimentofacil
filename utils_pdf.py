@@ -3,20 +3,23 @@ from io import BytesIO
 from pdfminer.high_level import extract_text
 from pdfminer.pdfparser import PDFSyntaxError
 
+import requests
+from io import BytesIO
+from pdfminer.high_level import extract_text
+import logging
+
 import re
 import unicodedata
 
 logger = logging.getLogger(__name__)
 
 
-def extract_text_from_pdf(file_bytes: bytes) -> str:
+def extract_text_from_pdf(url_pdf: str) -> str:
     try:
-        with BytesIO(file_bytes) as pdf_file:
-            text = extract_text(pdf_file)
-            return text
-    except PDFSyntaxError as e:
-        logger.error(f"Erro de sintaxe ao ler PDF: {e}")
-        return ""
+        response = requests.get(url_pdf)
+        response.raise_for_status()
+        pdf_file = BytesIO(response.content)
+        return extract_text(pdf_file)
     except Exception as e:
         logger.error(f"Erro inesperado ao extrair texto do PDF: {e}")
         return ""
