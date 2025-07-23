@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import insert_chunks_into_supabase
+from utils_db import salvar_chunks_no_supabase
 import logging
 import os
 
