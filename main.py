@@ -1,5 +1,3 @@
-# main.py com proteção contra recursão infinita (depth control)
-
 import re
 import os
 import time
@@ -44,8 +42,9 @@ supabase_key = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 def sanitize_text(text: str) -> str:
-    text = text.replace('\r', '')
-    text = re.sub(r'[ \t]+', ' ', text)
+    text = text.replace('\r', '').replace('\n', ' ')
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'[~:]+', '', text)
     return text.strip()
 
 def is_valid_chunk(text: str) -> bool:
@@ -56,6 +55,13 @@ def is_valid_chunk(text: str) -> bool:
     if re.fullmatch(r'Art\.?\s*\d+\s*\d*', text.strip()):
         return False
     if len(re.findall(r'\w+', text)) < 10:
+        return False
+    return True
+
+def is_clean_text(text: str) -> bool:
+    if len(re.findall(r'[~]{2,}|\w{1,2}\s+\n', text)) > 2:
+        return False
+    if len(re.findall(r'[^�-]+', text)) > 5:
         return False
     return True
 
@@ -75,70 +81,14 @@ def extract_text_from_pdf(file_url: str) -> list:
     except Exception as e:
         raise Exception(f"Erro ao processar o PDF: {e}")
 
-def _chunk_by_titles_recursive(text: str, page_number: int, parent_metadata: Dict, depth: int) -> List[Dict]:
-    title_pattern = re.compile(
-        r'(?:(CAP[IÍ]TULO\s+[IVXLCDM]+)|(SE[CÇ][AÃ]O\s+[A-Z]+)|(Art\.\s*\d+[º°]?))\s*(.*?)(?=\n|$)',
-        re.IGNORECASE
-    )
-    matches = list(title_pattern.finditer(text))
-    if not matches:
-        return []
+def chunk_by_artigos(text: str, page_number: int, parent_metadata: Dict, depth: int) -> List[Dict]:
+    artigo_pattern = re.compile(r'(Art\.?\s*\d+[º°]?[^A-Z]*?)(?=Art\.?\s*\d+[º°]?|\Z)', re.IGNORECASE | re.DOTALL)
+    matches = artigo_pattern.findall(text)
     chunks = []
-    for i in range(len(matches)):
-        start = matches[i].start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        chunk_text = text[start:end].strip()
-        title = matches[i].group(0).strip()
-        current_metadata = {"type": "title", "title": title}
-        current_metadata.update(parent_metadata)
-        if len(chunk_text) > 300 and depth < 2:
-            sub_chunks = split_text_into_chunks(chunk_text, page_number, current_metadata, depth=depth+1)
-            chunks.extend(sub_chunks)
-        elif is_valid_chunk(chunk_text):
-            chunks.append({
-                "page": page_number,
-                "text": chunk_text,
-                "metadata": current_metadata
-            })
-    return chunks
-
-def _chunk_by_paragraphs(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
-    chunks = []
-    paragraphs = text.split('\n\n')
-    for paragraph in paragraphs:
-        chunk_text = paragraph.strip()
-        if is_valid_chunk(chunk_text):
-            current_metadata = {"type": "paragraph"}
-            current_metadata.update(parent_metadata)
-            chunks.append({
-                "page": page_number,
-                "text": chunk_text,
-                "metadata": current_metadata
-            })
-    return chunks
-
-def _chunk_by_sentences(text: str, page_number: int, parent_metadata: Dict) -> List[Dict]:
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks = []
-    current_chunk = ""
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) < 350:
-            current_chunk += sentence + " "
-        else:
-            chunk_text = current_chunk.strip()
-            if is_valid_chunk(chunk_text):
-                current_metadata = {"type": "sentence"}
-                current_metadata.update(parent_metadata)
-                chunks.append({
-                    "page": page_number,
-                    "text": chunk_text,
-                    "metadata": current_metadata
-                })
-            current_chunk = sentence + " "
-    if current_chunk:
-        chunk_text = current_chunk.strip()
-        if is_valid_chunk(chunk_text):
-            current_metadata = {"type": "sentence"}
+    for match in matches:
+        chunk_text = match.strip()
+        if is_valid_chunk(chunk_text) and is_clean_text(chunk_text):
+            current_metadata = {"type": "artigo"}
             current_metadata.update(parent_metadata)
             chunks.append({
                 "page": page_number,
@@ -153,17 +103,11 @@ def split_text_into_chunks(text: str, page_number: int, parent_metadata: Dict = 
     chunks = []
     if parent_metadata is None:
         parent_metadata = {}
-    title_chunks = _chunk_by_titles_recursive(text, page_number, parent_metadata, depth=depth+1)
-    if title_chunks:
-        chunks.extend(title_chunks)
+    artigo_chunks = chunk_by_artigos(text, page_number, parent_metadata, depth)
+    if artigo_chunks:
+        chunks.extend(artigo_chunks)
         return chunks
-    para_chunks = _chunk_by_paragraphs(text, page_number, parent_metadata)
-    if para_chunks:
-        chunks.extend(para_chunks)
-        return chunks
-    sentence_chunks = _chunk_by_sentences(text, page_number, parent_metadata)
-    chunks.extend(sentence_chunks)
-    return chunks
+    return []
 
 def get_embedding(text: str, model: str = "text-embedding-3-small") -> list:
     response = openai.embeddings.create(model=model, input=text)
@@ -196,7 +140,7 @@ def vectorize_pdf(file_url: str, condominio_id: str) -> list:
         chunks = split_text_into_chunks(page_text, page_number)
         for chunk in chunks:
             chunk_text = chunk["text"]
-            if not is_valid_chunk(chunk_text):
+            if not is_valid_chunk(chunk_text) or not is_clean_text(chunk_text):
                 continue
             chunk_hash = generate_chunk_hash(chunk_text)
             try:
