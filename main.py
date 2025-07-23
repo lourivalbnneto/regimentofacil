@@ -1,14 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import salvar_chunks_no_supabase
-import logging
-import os
+from utils_db import insert_chunks_into_supabase  # <- Certifique-se de importar corretamente
 
 app = FastAPI()
-logging.basicConfig(level=logging.INFO)
 
+# CORS liberado para testes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,19 +16,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+logging.basicConfig(level=logging.INFO)
+
+@app.get("/")
+def read_root():
+    return {"message": "API Vetorizador ativa"}
+
 @app.post("/vetorizar")
-async def vetorizar_pdf(request: Request):
+async def vetorizar(request: Request):
     try:
         body = await request.json()
         url_pdf = body.get("url_pdf")
+        nome_documento = body.get("nome_documento")
         condominio_id = body.get("condominio_id")
         id_usuario = body.get("id_usuario")
-        nome_documento = body.get("nome_documento")
-        origem = body.get("origem", "upload")
+        origem = body.get("origem", "upload_manual")
 
-        if not all([url_pdf, condominio_id, id_usuario, nome_documento]):
-            return {"success": False, "message": "Parâmetros obrigatórios ausentes."}
+        if not url_pdf or not condominio_id or not id_usuario:
+            return {"success": False, "message": "Campos obrigatórios ausentes"}
 
+        # Etapa 1: Extração + chunking
         chunks = extract_and_chunk_pdf(
             url_pdf=url_pdf,
             nome_documento=nome_documento,
@@ -38,15 +44,17 @@ async def vetorizar_pdf(request: Request):
             origem=origem
         )
 
+        if not chunks:
+            return {"success": False, "message": "Nenhum chunk gerado"}
+
+        # Etapa 2: Geração de embeddings
         chunks = await gerar_embeddings_para_chunks(chunks)
-        inseridos = salvar_chunks_no_supabase(chunks)
 
-        return {
-            "success": True,
-            "message": f"{len(inseridos)} chunks inseridos com sucesso.",
-            "chunks_inseridos": len(inseridos)
-        }
+        # Etapa 3: Salvar no Supabase
+        inseridos = insert_chunks_into_supabase(chunks)
+        logging.info(f"✅ {inseridos} chunks inseridos no Supabase")
 
+        return {"success": True, "chunks_salvos": inseridos}
     except Exception as e:
-        logging.exception("Erro ao processar a vetorização do PDF")
+        logging.error(f"Erro ao processar PDF: {e}")
         return {"success": False, "message": str(e)}
