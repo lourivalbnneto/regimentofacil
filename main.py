@@ -23,17 +23,17 @@ async def vetorizar(request: Request):
     try:
         payload = await request.json()
         url_pdf = payload["url_pdf"]
-        id_condominio = payload["id_condominio"]
+        condominio_id = payload["id_condominio"]
         id_usuario = payload["id_usuario"]
         origem = payload.get("origem", "upload")
 
         logger.info(
-            f"Iniciando vetorização: url_pdf='{url_pdf}';; id_condominio='{id_condominio}' id_usuario='{id_usuario}' origem='{origem}'"
+            f"Iniciando vetorização: url_pdf='{url_pdf}';; id_condominio='{condominio_id}' id_usuario='{id_usuario}' origem='{origem}'"
         )
 
         texto_extraido = extract_text_from_pdf(url_pdf)
         texto_limpo = sanitize_text(texto_extraido)
-        chunks = chunk_text_by_titles(texto_limpo, id_condominio, id_usuario, origem)
+        chunks = chunk_text_by_titles(texto_limpo, condominio_id, id_usuario, origem)
 
         logger.info(f"Total de chunks gerados: {len(chunks)}")
 
