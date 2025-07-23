@@ -8,7 +8,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_TABLE = "pdf_embeddings_textos"
 
-def insert_chunks_into_supabase(chunks):
+def salvar_chunks_no_supabase(chunks):
     if not SUPABASE_URL or not SUPABASE_KEY:
         logger.error("Supabase URL ou Key não definida")
         raise Exception("Variáveis de ambiente do Supabase não definidas")
