@@ -2,17 +2,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import insert_chunks_into_supabase
+from utils_db import inserir_chunks_supabase
 import logging
 import os
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
 
-# Middleware CORS para permitir chamadas de outras origens (como FlutterFlow)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Altere para origens específicas em produção
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
