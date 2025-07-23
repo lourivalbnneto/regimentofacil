@@ -40,7 +40,7 @@ async def vetorizar(request: Request):
     logger.info(f"Iniciando vetorização: url_pdf='{url_pdf}';;; id_condominio='{id_condominio}' id_usuario='{id_usuario}' origem='{origem}'")
 
     try:
-        # Extrair e chunkar o PDF
+        # Extrair e chunkar o PDF por parágrafos
         chunks = extrair_chunks_pdf_por_paragrafo(
             url_pdf=url_pdf,
             condominio_id=id_condominio,
