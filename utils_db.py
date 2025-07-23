@@ -9,7 +9,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 def supabase_client():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-async def inserir_chunks_supabase(chunks: List[Dict]):
+async def salvar_chunks_no_supabase(chunks: List[Dict]):
     supabase = supabase_client()
     inseridos = 0
     erros = 0
