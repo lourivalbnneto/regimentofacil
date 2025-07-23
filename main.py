@@ -36,7 +36,7 @@ async def vetorizar(request: Request):
             return {"success": False, "message": "Campos obrigatórios ausentes"}
 
         # Etapa 1: Extração + chunking
-        chunks = extract_and_chunk_pdf(
+        chunks = await extract_and_chunk_pdf(
             url_pdf=url_pdf,
             nome_documento=nome_documento,
             condominio_id=condominio_id,
@@ -44,13 +44,21 @@ async def vetorizar(request: Request):
             origem=origem
         )
 
+        print(f"🔍 Total de chunks extraídos: {len(chunks)}")
+
         if not chunks:
             return {"success": False, "message": "Nenhum chunk gerado"}
 
         # Etapa 2: Geração de embeddings
         chunks = await gerar_embeddings_para_chunks(chunks)
 
+        print("🧠 Verificando conteúdo dos chunks:")
+        for i, c in enumerate(chunks):
+            print(f"{i+1}. Texto: {c.get('chunk_text')[:50]}... | Embedding: {'ok' if 'embedding' in c else '❌'}")
+
         # Etapa 3: Salvar no Supabase
+        print(f"💾 Enviando {len(chunks)} chunks para o Supabase")
+
         inseridos = salvar_chunks_no_supabase(chunks)
         logging.info(f"✅ {inseridos} chunks inseridos no Supabase")
 
