@@ -32,7 +32,7 @@ async def vetorizar(request: VetorizarRequest):
         logging.info(f"Iniciando vetorização: {request}")
         texto_extraido = extract_text_from_pdf(request.url_pdf)
         texto_limpo = sanitize_text(texto_extraido)
-        chunks = chunk_text_by_titles(texto_limpo)
+        chunks = chunk_text_by_titles(texto_limpo, id_condominio, id_usuario, origem)
         logging.info(f"Total de chunks gerados: {len(chunks)}")
 
         # Aqui você pode salvar os chunks no Supabase ou outro destino
