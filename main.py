@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import salvar_chunks_no_supabase  # <- Certifique-se de importar corretamente
+from utils_db import salvar_chunks_no_supabase
 
 app = FastAPI()
 
@@ -18,9 +18,11 @@ app.add_middleware(
 
 logging.basicConfig(level=logging.INFO)
 
+
 @app.get("/")
 def read_root():
     return {"message": "API Vetorizador ativa"}
+
 
 @app.post("/vetorizar")
 async def vetorizar(request: Request):
@@ -36,7 +38,7 @@ async def vetorizar(request: Request):
             return {"success": False, "message": "Campos obrigatórios ausentes"}
 
         # Etapa 1: Extração + chunking
-        chunks = await extract_and_chunk_pdf(
+        chunks = extract_and_chunk_pdf(
             url_pdf=url_pdf,
             nome_documento=nome_documento,
             condominio_id=condominio_id,
@@ -44,10 +46,11 @@ async def vetorizar(request: Request):
             origem=origem
         )
 
-        print(f"🔍 Total de chunks extraídos: {len(chunks)}")
-
         if not chunks:
-            return {"success": False, "message": "Nenhum chunk gerado"}
+            logging.warning("⚠️ Nenhum chunk foi retornado do parser PDF.")
+            return {"success": False, "message": "Nenhum chunk gerado a partir do PDF"}
+
+        print(f"🔍 Total de chunks extraídos: {len(chunks)}")
 
         # Etapa 2: Geração de embeddings
         chunks = await gerar_embeddings_para_chunks(chunks)
@@ -63,6 +66,7 @@ async def vetorizar(request: Request):
         logging.info(f"✅ {inseridos} chunks inseridos no Supabase")
 
         return {"success": True, "chunks_salvos": inseridos}
+
     except Exception as e:
-        logging.error(f"Erro ao processar PDF: {e}")
-        return {"success": False, "message": str(e)}
+        logging.exception("Erro ao processar PDF")
+        return {"success": False, "message": f"Erro inesperado: {str(e)}"}
