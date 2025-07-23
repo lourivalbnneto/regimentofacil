@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import inserir_chunks_supabase
+from utils_db import insert_chunks_into_supabase
 import logging
 import os
 
@@ -39,7 +39,7 @@ async def vetorizar_pdf(request: Request):
         )
 
         chunks = await gerar_embeddings_para_chunks(chunks)
-        inseridos = inserir_chunks_supabase(chunks)
+        inseridos = insert_chunks_into_supabase(chunks)
 
         return {
             "success": True,
