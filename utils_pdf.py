@@ -1,17 +1,13 @@
+import re
 import logging
-from io import BytesIO
-from pdfminer.high_level import extract_text
-from pdfminer.pdfparser import PDFSyntaxError
-
 import requests
 from io import BytesIO
 from pdfminer.high_level import extract_text
-import logging
+from nltk.tokenize import sent_tokenize
 
-import re
-import unicodedata
-
+# Configuração do logger
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 def extract_text_from_pdf(url_pdf: str) -> str:
@@ -26,29 +22,43 @@ def extract_text_from_pdf(url_pdf: str) -> str:
 
 
 def sanitize_text(text: str) -> str:
-    # Remove caracteres invisíveis e normaliza
-    text = unicodedata.normalize("NFKC", text)
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{2,}", "\n", text)
-    text = text.replace("\x00", "").replace("\u200b", "")
-    return text.strip()
+    sanitized = re.sub(r'\s+', ' ', text).strip()
+    logger.debug(f"Texto sanitizado (tamanho={len(sanitized)}): {sanitized[:100]}...")
+    return sanitized
 
 
-def chunk_text_by_titles(text: str) -> list[dict]:
-    """
-    Divide o texto por artigos e parágrafos.
-    """
-    pattern = r"(Art\.?\s*\d+[º°]?(?:-[A-Z])?(?:\s*–)?(?:\s*\(.*?\))?)"
-    partes = re.split(pattern, text, flags=re.IGNORECASE)
-
+def chunk_text_by_titles(text: str, id_condominio: str, id_usuario: str, origem: str) -> list:
     chunks = []
-    for i in range(1, len(partes), 2):
-        titulo = partes[i].strip()
-        conteudo = partes[i + 1].strip()
-        chunk = f"{titulo} - {conteudo}"
-        chunks.append({
-            "title": titulo,
-            "content": chunk
-        })
+    artigo_atual = ""
+    chunk_base = {
+        "id_condominio": id_condominio,
+        "id_usuario": id_usuario,
+        "origem": origem,
+        "foi_vetorizada": False,
+        "reusada": False,
+        "acessos": 0,
+        "score_similaridade": None,
+        "qualidade": "Pendente",
+    }
 
+    # Expressão para identificar o início de artigos (Art. 1º, Artigo 2º, etc.)
+    padrao_artigo = re.compile(r'(Art\.?[\sº°]*\d+[^\n]*)', re.IGNORECASE)
+
+    partes = padrao_artigo.split(text)
+    partes = [p.strip() for p in partes if p.strip()]
+
+    for i in range(0, len(partes), 2):
+        if i + 1 < len(partes):
+            titulo = partes[i]
+            conteudo = partes[i + 1]
+            paragrafos = re.split(r'(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', conteudo)
+
+            for idx, paragrafo in enumerate(paragrafos):
+                texto_final = f"{titulo.strip()} - {paragrafo.strip()}"
+                chunk = chunk_base.copy()
+                chunk["pergunta"] = texto_final
+                chunk["resposta"] = texto_final
+                chunks.append(chunk)
+
+    logger.info(f"Total de chunks gerados: {len(chunks)}")
     return chunks
