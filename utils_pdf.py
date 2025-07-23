@@ -100,3 +100,7 @@ def fallback_por_paragrafo(text: str, nome_documento: str, condominio_id: str, i
 
     logging.info(f"Total de chunks gerados: {len(chunks)}")
     return chunks
+
+print("📄 DEBUG - Total de chunks extraídos:", len(chunks))
+for i, c in enumerate(chunks[:5]):
+    print(f"{i+1}. Referência: {c.get('referencia_detectada')} | Texto: {c.get('chunk_text')[:80]}...")
