@@ -5,7 +5,7 @@ from utils_pdf import extract_text_from_pdf, sanitize_text, chunk_text_by_titles
 from utils_db import salvar_chunks_no_supabase
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("main")
 
 app = FastAPI()
 
@@ -28,7 +28,7 @@ async def vetorizar(request: Request):
         origem = payload.get("origem", "upload")
 
         logger.info(
-            f"Iniciando vetorização: url_pdf='{url_pdf}'; id_condominio='{id_condominio}' id_usuario='{id_usuario}' origem='{origem}'"
+            f"Iniciando vetorização: url_pdf='{url_pdf}';; id_condominio='{id_condominio}' id_usuario='{id_usuario}' origem='{origem}'"
         )
 
         texto_extraido = extract_text_from_pdf(url_pdf)
