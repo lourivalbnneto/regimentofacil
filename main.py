@@ -39,7 +39,7 @@ async def vetorizar_pdf(request: Request):
         )
 
         chunks = await gerar_embeddings_para_chunks(chunks)
-        inseridos = insert_chunks_into_supabase(chunks)
+        inseridos = salvar_chunks_no_supabase(chunks)
 
         return {
             "success": True,
