@@ -1,98 +1,102 @@
 import re
+from typing import List, Dict
 import logging
+from pdfminer.high_level import extract_text
 import requests
 from io import BytesIO
-from pdfminer.high_level import extract_text
 from nltk.tokenize import sent_tokenize
-import hashlib
-import openai
-import os
 
-logger = logging.getLogger("utils_pdf")
+# Função principal para extrair texto e gerar chunks
+def extract_and_chunk_pdf(url_pdf: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
+    response = requests.get(url_pdf)
+    response.raise_for_status()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-EMBEDDING_MODEL = "text-embedding-3-small"
+    texto_completo = extract_text(BytesIO(response.content))
+    logging.info(f"Texto extraído (tamanho={len(texto_completo)}): {texto_completo[:300]}")
 
-def extract_text_from_pdf(url_pdf: str) -> str:
-    try:
-        response = requests.get(url_pdf)
-        response.raise_for_status()
-        pdf_file = BytesIO(response.content)
-        return extract_text(pdf_file)
-    except Exception as e:
-        logger.error(f"Erro inesperado ao extrair texto do PDF: {e}")
-        return ""
+    chunks = chunk_text_by_articles(
+        texto_completo,
+        nome_documento=nome_documento,
+        condominio_id=condominio_id,
+        id_usuario=id_usuario,
+        origem=origem
+    )
+    return chunks
 
-def sanitize_text(text: str) -> str:
-    sanitized = re.sub(r'\s+', ' ', text).strip()
-    logger.debug(f"Texto sanitizado (tamanho={len(sanitized)}): {sanitized[:100]}...")
-    return sanitized
+# Sanitização básica
+def clean_text(text: str) -> str:
+    text = re.sub(r'[^\S\r\n]+', ' ', text)  # espaços múltiplos
+    text = re.sub(r'\s*\n\s*', '\n', text)  # quebras de linha
+    return text.strip()
 
-def gerar_embedding(texto: str) -> list:
-    try:
-        response = openai.embeddings.create(
-            input=[texto],
-            model=EMBEDDING_MODEL,
-            dimensions=1536,
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        logger.warning(f"⚠️ Erro ao gerar embedding: {e}")
-        return []
+# Dividir por artigos (Art. 1º, Artigo 2º, etc.)
+def chunk_text_by_articles(text: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
+    text = clean_text(text)
+    regex_artigo = r'(Art\.?[\sº°]*\d+[A-Za-zº°]*)\s*[-–:]?\s*'
 
-def gerar_hash(texto: str) -> str:
-    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+    partes = re.split(regex_artigo, text)
+    if len(partes) <= 1:
+        logging.warning("⚠️ Nenhum artigo encontrado. Aplicando fallback por parágrafos.")
+        return fallback_por_paragrafo(text, nome_documento, condominio_id, id_usuario, origem)
 
-def chunk_text_by_titles(text: str, condominio_id: str, id_usuario: str, origem: str) -> list:
     chunks = []
-    chunk_base = {
-        "condominio_id": condominio_id,
-        "id_usuario": id_usuario,
-        "origem": origem,
-        "foi_vetorizada": True,
-        "reusada": False,
-        "acessos": 0,
-        "score_similaridade": None,
-        "qualidade": "Pendente",
-        "pagina": None,
-        "nome_documento": None,
-        "referencia_detectada": None,
-    }
+    pagina = 1
+    for i in range(1, len(partes), 2):
+        referencia = partes[i].strip()
+        conteudo = partes[i + 1].strip()
+        parags = [p for p in conteudo.split('\n') if p.strip()]
 
-    padrao_artigo = re.compile(r'(Art\.?[\sº°]*\d+[^\n]*)', re.IGNORECASE)
-    partes = padrao_artigo.split(text)
-    partes = [p.strip() for p in partes if p.strip()]
-
-    if len(partes) < 2:
-        logger.warning("⚠️ Nenhum artigo encontrado. Aplicando fallback por parágrafos.")
-        paragrafos = re.split(r'(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', text)
-        for paragrafo in paragrafos:
-            chunk_text = paragrafo.strip()
-            if len(chunk_text) < 10:
+        for par in parags:
+            frases = sent_tokenize(par.strip(), language='portuguese')
+            if not frases:
                 continue
-            chunk = chunk_base.copy()
-            chunk["chunk_text"] = chunk_text
-            chunk["chunk_hash"] = gerar_hash(chunk_text)
-            chunk["embedding"] = gerar_embedding(chunk_text)
+            chunk = {
+                "condominio_id": condominio_id,
+                "id_usuario": id_usuario,
+                "nome_documento": nome_documento,
+                "pagina": pagina,
+                "chunk_text": " ".join(frases),
+                "chunk_hash": "",
+                "embedding": None,
+                "qualidade": "pendente",
+                "referencia_detectada": f"Art. {referencia}",
+                "origem": origem,
+                "foi_vetorizada": False,
+                "reusada": False,
+                "score_similaridade": None
+            }
             chunks.append(chunk)
-        logger.info(f"Total de chunks gerados: {len(chunks)}")
-        return chunks
 
-    for i in range(0, len(partes), 2):
-        if i + 1 < len(partes):
-            titulo = partes[i]
-            conteudo = partes[i + 1]
-            paragrafos = re.split(r'(?<=\.)\s+(?=[A-ZÁÉÍÓÚ])', conteudo)
+    logging.info(f"Total de chunks gerados: {len(chunks)}")
+    return chunks
 
-            for paragrafo in paragrafos:
-                chunk_text = f"{titulo.strip()} - {paragrafo.strip()}"
-                if len(chunk_text) < 10:
-                    continue
-                chunk = chunk_base.copy()
-                chunk["chunk_text"] = chunk_text
-                chunk["chunk_hash"] = gerar_hash(chunk_text)
-                chunk["embedding"] = gerar_embedding(chunk_text)
-                chunks.append(chunk)
+# Caso não detecte "Art." aplicar fallback por parágrafos
+def fallback_por_paragrafo(text: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
+    text = clean_text(text)
+    parags = [p for p in text.split('\n') if p.strip()]
+    pagina = 1
+    chunks = []
 
-    logger.info(f"Total de chunks gerados: {len(chunks)}")
+    for par in parags:
+        frases = sent_tokenize(par.strip(), language='portuguese')
+        if not frases:
+            continue
+        chunk = {
+            "condominio_id": condominio_id,
+            "id_usuario": id_usuario,
+            "nome_documento": nome_documento,
+            "pagina": pagina,
+            "chunk_text": " ".join(frases),
+            "chunk_hash": "",
+            "embedding": None,
+            "qualidade": "pendente",
+            "referencia_detectada": None,
+            "origem": origem,
+            "foi_vetorizada": False,
+            "reusada": False,
+            "score_similaridade": None
+        }
+        chunks.append(chunk)
+
+    logging.info(f"Total de chunks gerados: {len(chunks)}")
     return chunks
