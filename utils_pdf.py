@@ -6,13 +6,13 @@ import requests
 from io import BytesIO
 from nltk.tokenize import sent_tokenize
 
-# Função principal para extrair texto e gerar chunks
 def extract_and_chunk_pdf(url_pdf: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
+    print("📥 Baixando PDF...", flush=True)
     response = requests.get(url_pdf)
     response.raise_for_status()
 
     texto_completo = extract_text(BytesIO(response.content))
-    logging.info(f"Texto extraído (tamanho={len(texto_completo)}): {texto_completo[:300]}")
+    print(f"📄 Texto extraído (primeiros 1000 chars):\n{texto_completo[:1000]}", flush=True)
 
     chunks = chunk_text_by_articles(
         texto_completo,
@@ -22,27 +22,24 @@ def extract_and_chunk_pdf(url_pdf: str, nome_documento: str, condominio_id: str,
         origem=origem
     )
 
-    # DEBUG: mostrar primeiros chunks
-    print("📄 DEBUG - Total de chunks extraídos:", len(chunks))
-    for i, c in enumerate(chunks[:5]):
-        print(f"{i+1}. Referência: {c.get('referencia_detectada')} | Texto: {c.get('chunk_text')[:80]}...")
+    print("📄 DEBUG - Total de chunks extraídos:", len(chunks), flush=True)
+    for i, c in enumerate(chunks[:3]):
+        print(f"{i+1}. Referência: {c.get('referencia_detectada')} | Texto: {c.get('chunk_text')[:80]}...", flush=True)
 
     return chunks
 
-# Sanitização básica
 def clean_text(text: str) -> str:
-    text = re.sub(r'[^\S\r\n]+', ' ', text)  # espaços múltiplos
-    text = re.sub(r'\s*\n\s*', '\n', text)  # quebras de linha
+    text = re.sub(r'[^\S\r\n]+', ' ', text)
+    text = re.sub(r'\s*\n\s*', '\n', text)
     return text.strip()
 
-# Dividir por artigos (Art. 1º, Artigo 2º, etc.)
 def chunk_text_by_articles(text: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
     text = clean_text(text)
     regex_artigo = r'(Art\.?[\sº°]*\d+[A-Za-zº°]*)\s*[-–:]?\s*'
 
     partes = re.split(regex_artigo, text)
     if len(partes) <= 1:
-        logging.warning("⚠️ Nenhum artigo encontrado. Aplicando fallback por parágrafos.")
+        print("⚠️ Nenhum artigo detectado com regex. Ativando fallback por parágrafos.", flush=True)
         return fallback_por_paragrafo(text, nome_documento, condominio_id, id_usuario, origem)
 
     chunks = []
@@ -73,10 +70,9 @@ def chunk_text_by_articles(text: str, nome_documento: str, condominio_id: str, i
             }
             chunks.append(chunk)
 
-    logging.info(f"Total de chunks gerados: {len(chunks)}")
+    print(f"✅ Chunks por artigo gerados: {len(chunks)}", flush=True)
     return chunks
 
-# Caso não detecte "Art." aplicar fallback por parágrafos
 def fallback_por_paragrafo(text: str, nome_documento: str, condominio_id: str, id_usuario: str, origem: str) -> List[Dict]:
     text = clean_text(text)
     parags = [p for p in text.split('\n') if p.strip()]
@@ -104,5 +100,5 @@ def fallback_por_paragrafo(text: str, nome_documento: str, condominio_id: str, i
         }
         chunks.append(chunk)
 
-    logging.info(f"Total de chunks gerados: {len(chunks)}")
+    print(f"✅ Chunks por fallback (parágrafos) gerados: {len(chunks)}", flush=True)
     return chunks
