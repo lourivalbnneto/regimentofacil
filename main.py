@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from utils_pdf import extract_and_chunk_pdf
 from utils_openai import gerar_embeddings_para_chunks
-from utils_db import inserir_chunks_supabase  # <- Certifique-se de importar corretamente
+from utils_db import salvar_chunks_no_supabase  # <- Certifique-se de importar corretamente
 
 app = FastAPI()
 
@@ -51,7 +51,7 @@ async def vetorizar(request: Request):
         chunks = await gerar_embeddings_para_chunks(chunks)
 
         # Etapa 3: Salvar no Supabase
-        inseridos = inserir_chunks_supabase(chunks)
+        inseridos = salvar_chunks_no_supabase(chunks)
         logging.info(f"✅ {inseridos} chunks inseridos no Supabase")
 
         return {"success": True, "chunks_salvos": inseridos}
