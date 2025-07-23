@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("utils_db")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
